@@ -16,18 +16,12 @@ CORS(app)
 
 @app.route("/api/scoreboard", methods=['GET'])
 def get_scoreboard():
-    try:
-        today = datetime.datetime.now().strftime('%Y-%m-%d')
-        sb = scoreboardv3.ScoreboardV3(game_date=today)
-        return jsonify({
-            'status': 'success', 
-            'games': sb.get_dict()['scoreboard']['games']
-            })
-    except Exception as e:
-        return jsonify({
-            'status': 'error', 
-            'message': str(e)
-            })
+    today = datetime.datetime.now().strftime('%Y-%m-%d')
+    sb = scoreboardv3.ScoreboardV3(game_date = today)
+    return jsonify({
+        'status': 'success', 
+        'games': sb.get_dict()['scoreboard']['games']
+        })
 
 @app.route("/api/key-player-id", methods=['POST'])
 def receive_player_ids():

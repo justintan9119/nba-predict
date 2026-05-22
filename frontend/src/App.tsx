@@ -1,10 +1,10 @@
 import {useEffect, useState} from 'react'
 import './App.css'
 
-interface Player { 
-  id: number; 
-  full_name: string; 
-}
+// interface Player { 
+//   id: number; 
+//   full_name: string; 
+// }
 interface ScoreStats {
   gameId: string;
   gameStatusText: string;
