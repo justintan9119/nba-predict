@@ -3,7 +3,9 @@ from flask_cors import CORS
 from nba_api.stats.static import players
 from nba_api.stats.endpoints import scoreboardv3
 import datetime
+from predict_win import train_model, predict_winner
 
+train_model()
 app = Flask(__name__)
 CORS(app)
 
@@ -23,15 +25,24 @@ def get_scoreboard():
         'games': sb.get_dict()['scoreboard']['games']
         })
 
-@app.route("/api/key-player-id", methods=['POST'])
-def receive_player_ids():
+@app.route("/api/game-info", methods=['POST'])
+def receive_game_info():
     data = request.get_json()
     p1 = players.find_player_by_id(data.get('id1'))
     p2 = players.find_player_by_id(data.get('id2'))
-    print(p1, p2)
+    awayTeam = data.get('team1')
+    homeTeam = data.get('team2')
+    print("bro",awayTeam, homeTeam)
+    winner, confidence = predict_winner(awayTeam, homeTeam)
+    print("yo",winner, confidence)
     return jsonify({
         'status': 'success', 
-        'names': [p1, p2]})
+        'names': [p1, p2],
+        'teams': [awayTeam, homeTeam],
+        'predict-info': [winner, f"{confidence:.2%}"]
+        })
+
+
 
 if __name__ == "__main__":
     app.run(debug=True, port=8080)
