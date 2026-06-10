@@ -1,7 +1,7 @@
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from nba_api.stats.static import players
-from nba_api.stats.endpoints import scoreboardv3, boxscoretraditionalv3
+from nba_api.stats.endpoints import scoreboardv3, boxscoresummaryv3
 from nba_api.live.nba.endpoints import scoreboard
 import datetime
 from predict import train
@@ -19,7 +19,7 @@ CORS(app, resources={r"/*": {"origins": "*", "allow_headers": ["Content-Type"]}}
 @app.route("/api/scoreboard", methods=['GET'])
 def get_scoreboard():
     today = datetime.datetime.now().strftime('%Y-%m-%d')
-    today = "2026-6-5"
+    today = "2026-6-10"
     board = scoreboardv3.ScoreboardV3(game_date = today)
     games = board.get_dict()['scoreboard']['games']
 
@@ -39,9 +39,9 @@ def get_scoreboard():
 
 @app.route("/api/players/<game_id>", methods=['GET'])
 def get_players(game_id):
-    box = boxscoretraditionalv3.BoxScoreTraditionalV3(game_id=game_id)
-    awayTeam = box.get_dict()["boxScoreTraditional"]['awayTeam']
-    homeTeam = box.get_dict()["boxScoreTraditional"]['homeTeam']
+    box = boxscoresummaryv3.BoxScoreSummaryV3(game_id=game_id)
+    awayTeam = box.get_dict()["boxScoreSummary"]['awayTeamId']
+    homeTeam = box.get_dict()["boxScoreSummary"]['homeTeamId']
     
     print(homeTeam)
     return jsonify({
@@ -50,9 +50,9 @@ def get_players(game_id):
 
 @app.route("/api/predict/<game_id>", methods=['GET'])
 def get_id(game_id):
-    box = boxscoretraditionalv3.BoxScoreTraditionalV3(game_id=game_id)
-    awayTeam = box.get_dict()["boxScoreTraditional"]['awayTeam']["teamId"]
-    homeTeam = box.get_dict()["boxScoreTraditional"]['homeTeam']["teamId"]
+    box = boxscoresummaryv3.BoxScoreSummaryV3(game_id=game_id)
+    awayTeam = box.get_dict()["boxScoreSummary"]["awayTeamId"]
+    homeTeam = box.get_dict()["boxScoreSummary"]["homeTeamId"]
     winner, confidence = train(homeTeam, awayTeam)
     confidence = round(confidence, 2)
     return jsonify({
