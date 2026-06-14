@@ -10,6 +10,10 @@
     text-align: center;
 }
 
+.title{
+    text-align: center;
+    display:block;
+}
 
 button.stats {
     border: 1px solid #646cff;
@@ -46,7 +50,7 @@ body {
 
     text-align: center;
     display:inline;
-    width: 75%;
+    width: 69%;
 }
 
 .loader {
@@ -59,8 +63,63 @@ body {
     font-size: 1.2rem;
     color: #646cff;
 }
+
+.prediction-box {
+    background-color: #2a2a2a;
+    padding: 20px;
+    border-radius: 12px;
+    border: 1px solid #444;
+}
+
+.live-container {
+    background-color: #1a1a1a;
+    border-radius: 12px;
+    padding: 20px;
+    border: 2px solid #ff4444;
+    box-shadow: 0 4px 20px rgba(255, 68, 68, 0.2);
+    text-align: center;
+  }
+  
+  .live-badge {
+    background-color: #ff4444;
+    color: white;
+    padding: 4px 12px;
+    border-radius: 4px;
+    font-weight: bold;
+    display: inline-block;
+    margin-bottom: 12px;
+    animation: livePulse 2s infinite;
+  }
+  
+  .live-score {
+    font-size: 2.5rem;
+    font-weight: 800;
+    margin: 10px 0;
+    letter-spacing: 2px;
+    color: white;
+  }
+  
+  .live-clock {
+    font-family: 'Consolas', Courier, monospace;
+    font-size: 1.2rem;
+    font-weight: bold;
+    color: #aaa;
+    margin-bottom: 20px;
+  }
+  
+  @keyframes livePulse {
+    0% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.05); opacity: 0.8; }
+    100% { transform: scale(1); opacity: 1; }
+  }
+
 @keyframes pulse {
     0% { opacity: 0.5; }
     50% { opacity: 1; }
     100% { opacity: 0.5; }
+}
+.team-name {
+    font-size: 2rem;
+    font-weight: bold;
+    letter-spacing: 2px;    
 }
