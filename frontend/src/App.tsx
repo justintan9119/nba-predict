@@ -1,6 +1,8 @@
 import {useEffect, useState} from 'react'
 import './App.css'
 
+const API_BASE = 'http://localhost:8080/api';
+
 const TEAM_COLORS: Record<string, string> = {
   'Knicks': '#F58426',
   'Spurs': '#C4CED4',
@@ -34,66 +36,156 @@ const TEAM_COLORS: Record<string, string> = {
   'Wizards': '#002B5C',
 };
 
+type League = 'nba' | 'wnba';
+
+type LiveData = {
+  winner: string;
+  confidence?: number;
+  home: string;
+  away: string;
+  score: string;
+  clock: string;
+  period: number;
+  statusText?: string;
+  isFinal?: boolean;
+};
+
+type Game = {
+  home: string;
+  away: string;
+  gameId: string;
+  awayScore?: number;
+  homeScore?: number;
+  status?: number;
+  statusText?: string;
+  clock?: string;
+  period?: number;
+  isLive?: boolean;
+  isFinal?: boolean;
+};
+
+const formatClock = (clock?: string) => {
+  const match = clock?.match(/PT(\d+)M(\d+(?:\.\d+)?)S?/);
+  if (!match) {
+    return clock || 'LIVE';
+  }
+
+  return `${Number(match[1])}:${Math.floor(Number(match[2])).toString().padStart(2, '0')}`;
+};
+
+const liveDataFromGame = (game: Game): LiveData => {
+  const homeScore = game.homeScore ?? 0;
+  const awayScore = game.awayScore ?? 0;
+  const winner = homeScore === awayScore ? '' : homeScore > awayScore ? game.home : game.away;
+
+  return {
+    winner,
+    isFinal: game.isFinal,
+    home: game.home,
+    away: game.away,
+    score: `${awayScore} - ${homeScore}`,
+    clock: game.isFinal ? 'FINAL' : formatClock(game.clock || game.statusText),
+    period: game.period ?? 0,
+    statusText: game.statusText
+  };
+};
+
 function App() {
+  const [league, setLeague] = useState<League>('wnba');
   const [date, setDate] = useState("Date");
-  const [games, setGames] = useState<{ home: string; away: string; gameId: string; }[]>([]);
+  const [games, setGames] = useState<Game[]>([]);
   // const [players, setPlayers] = useState<{away: string[], home: string[]; } | null>();
   const [winner, setWinner] = useState();
   const [conf, setConf] = useState('%')
   const [loading, setLoading] = useState(false);
   const [selectedGameId, setSelectedGameId] = useState<string | null>(null);
-  const [liveData, setLiveData] = useState<{ winner: string; confidence: number; home: string; away: string; score: string; clock: string; period: number; isFinal?: boolean; } | null>(null);
+  const [liveData, setLiveData] = useState<LiveData | null>(null);
 
 
   useEffect(() => {
-    fetch("http://localhost:8080/api/scoreboard").then(
+    setWinner(undefined);
+    setLiveData(null);
+    setSelectedGameId(null);
+    setLoading(false);
+
+    fetch(`${API_BASE}/scoreboard?league=${league}`).then(
       response => response.json()
     ).then(
       data => {
         setDate(data.date);
         setGames(data.teams);
         
-        fetch("http://localhost:8080/api/train");
+        fetch(`${API_BASE}/train?league=${league}`);
       }
     )
-  }, [])
+  }, [league])
 
   // Poll for live stats if we have a game selected
   useEffect(() => {
     let interval: number;
     if (selectedGameId) {
       interval = setInterval(() => {
-        fetchLive(selectedGameId);
+        fetchLive(selectedGameId, false);
       }, 5000); 
     }
     return () => clearInterval(interval);
-  }, [selectedGameId]);
+  }, [selectedGameId, league]);
 
-  const fetchLive = (id: string) => {
-    fetch(`http://localhost:8080/api/live/${id}`).then(
-      res => res.json()
-    ).then(
-      json => {
-        if (json.status === 'success') {
-          setLiveData(json.data);
-        } else {
-          setLiveData(null);
-        }
+  const fetchLive = async (id: string, clearOnFail = true) => {
+    try {
+      const res = await fetch(`${API_BASE}/live/${id}?league=${league}`);
+      const json = await res.json();
+      if (json.status === 'success') {
+        setLiveData(json.data);
+        return json.data as LiveData;
       }
-    ).catch(() => setLiveData(null));
+    } catch {
+      // Fall through to the shared empty state below.
+    }
+
+    if (clearOnFail) {
+      setLiveData(null);
+    }
+    return null;
   }
 
-  const fetchPredict = (id: string) => {
+  const fetchPredict = async (id: string) => {
     setLoading(true);
     setWinner(undefined);
     setLiveData(null);
-    setSelectedGameId(id);
-    fetchLive(id);
 
-    fetch(`http://localhost:8080/api/predict/${id}`).then(
+    const selectedGame = games.find(game => game.gameId === id);
+    if (selectedGame?.isFinal) {
+      setSelectedGameId(null);
+      setLiveData(liveDataFromGame(selectedGame));
+      setLoading(false);
+      return;
+    }
+
+    setSelectedGameId(id);
+
+    if (selectedGame?.isLive || selectedGame?.status === 2) {
+      setLiveData(liveDataFromGame(selectedGame));
+      await fetchLive(id, false);
+      setLoading(false);
+      return;
+    }
+
+    const currentLiveData = await fetchLive(id);
+    if (currentLiveData) {
+      setLoading(false);
+      return;
+    }
+
+    fetch(`${API_BASE}/predict/${id}?league=${league}`).then(
       res => res.json()
     ).then(
       data => {
+        if (data.status !== 'success') {
+          setLoading(false);
+          return;
+        }
+
         setWinner(data.winner)
         setConf(data.conf)
         setLoading(false);
@@ -104,7 +196,21 @@ function App() {
   return (
 
     <div>
-      <h1 className = "title">NBA Predictor</h1>
+      <div className="league-toggle" aria-label="League selector">
+        <button
+          className={league === 'nba' ? 'active' : ''}
+          onClick={() => setLeague('nba')}
+        >
+          NBA
+        </button>
+        <button
+          className={league === 'wnba' ? 'active' : ''}
+          onClick={() => setLeague('wnba')}
+        >
+          WNBA
+        </button>
+      </div>
+      <h1 className = "title">{league.toUpperCase()} Predictor</h1>
       <h2 className = "title" style={{ paddingBottom: '2rem' }}>Today's Games ({date})</h2>
       <div className = "left-side">
         {games && games.length > 0 ? (
@@ -129,10 +235,12 @@ function App() {
                   <span className="live-score">{liveData.score}</span>
                   <span className="team-name" style={{ color: TEAM_COLORS[liveData.home] || '#f8ef39', marginLeft: '1rem' }}>{liveData.home}</span>
                 </div>
-                <div className="live-clock">{liveData.isFinal ? 'Game Ended' : `Quarter ${liveData.period} - ${liveData.clock}`}</div>
+                <div className="live-clock">{liveData.isFinal ? 'Game Ended' : `Quarter ${liveData.period} - ${formatClock(liveData.clock)}`}</div>
                 <div className="win" style={{ marginTop: '1rem', color: liveData.isFinal ? '#fff' : '#646cff' }}>
                   {liveData.isFinal ? (
                     <></>
+                  ) : liveData.confidence === undefined ? (
+                    <>Live score is in progress</>
                   ) : (
                     <>Live Projection: <strong>{liveData.winner}</strong> is favored (<strong>{liveData.confidence}%</strong>)</>
                   )}
