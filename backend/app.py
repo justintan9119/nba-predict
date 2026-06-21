@@ -7,7 +7,6 @@ import datetime
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*", "allow_headers": ["Content-Type"]}})
 
-SCOREBOARD_DATE = datetime.datetime.now().strftime('%Y-%m-%d')
 LEAGUE_IDS = {
     'nba': '00',
     'wnba': '10',
@@ -23,16 +22,31 @@ def get_league():
     return league if league in LEAGUE_IDS else 'nba'
 
 
+def get_scoreboard_date():
+    selected_date = request.args.get('date') or datetime.datetime.now().strftime('%Y-%m-%d')
+    try:
+        datetime.datetime.strptime(selected_date, '%Y-%m-%d')
+        return selected_date
+    except ValueError:
+        return datetime.datetime.now().strftime('%Y-%m-%d')
+
+
 def get_game_team_ids(game_id):
     summary = boxscoresummaryv3.BoxScoreSummaryV3(game_id=game_id).get_dict()["boxScoreSummary"]
     return summary["homeTeamId"], summary["awayTeamId"]
 
 
+def full_team_name(team):
+    city = team.get('teamCity') or team.get('teamCityName') or ''
+    name = team.get('teamName') or ''
+    return f"{city} {name}".strip() or name
+
+
 @app.route("/api/scoreboard", methods=['GET'])
 def get_scoreboard():
     league = get_league()
-    today = SCOREBOARD_DATE
-    board = scoreboardv3.ScoreboardV3(game_date=today, league_id=LEAGUE_IDS[league])
+    selected_date = get_scoreboard_date()
+    board = scoreboardv3.ScoreboardV3(game_date=selected_date, league_id=LEAGUE_IDS[league])
     games = board.get_dict()['scoreboard']['games']
 
     all_games = [
@@ -40,6 +54,8 @@ def get_scoreboard():
             'gameId': game['gameId'], 
             'away': game['awayTeam']['teamName'],
             'home': game['homeTeam']['teamName'],
+            'awayFullName': full_team_name(game['awayTeam']),
+            'homeFullName': full_team_name(game['homeTeam']),
             'awayScore': game['awayTeam'].get('score', 0),
             'homeScore': game['homeTeam'].get('score', 0),
             'status': game.get('gameStatus'),
@@ -54,7 +70,7 @@ def get_scoreboard():
 
     return jsonify({
         'league': league,
-        'date': today, 
+        'date': selected_date, 
         'teams': all_games,
     })
 

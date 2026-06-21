@@ -10,11 +10,38 @@
     text-align: center;
 }
 
-.title{
+.title {
     text-align: center;
-    display:block;
+    display: block;
+    letter-spacing: 0;
 }
 
+h1.title {
+    margin: 18px auto 6px;
+    color: #f7f8ff;
+    font-size: 2.8rem;
+    font-weight: 900;
+    line-height: 1.05;
+    text-shadow: 0 0 24px rgba(100, 108, 255, 0.35);
+}
+
+h1.title::after {
+    content: "";
+    display: block;
+    width: 92px;
+    height: 4px;
+    margin: 14px auto 0;
+    border-radius: 999px;
+    background-color: #646cff;
+    box-shadow: 0 0 18px rgba(100, 108, 255, 0.6);
+}
+
+h2.title {
+    margin: 0 auto;
+    color: #bfc2d8;
+    font-size: 1.05rem;
+    font-weight: 700;
+}
 button.stats {
     border: 1px solid #646cff;
     border-radius: 4px;
@@ -29,17 +56,24 @@ button.stats:hover {
     background-color: #646cff;
 }
 
-.league-toggle {
+.top-controls {
     position: fixed;
     top: 18px;
     right: 18px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 8px;
+    z-index: 10;
+}
+
+.league-toggle {
     display: flex;
     gap: 4px;
     border: 1px solid #555;
     border-radius: 6px;
     padding: 4px;
     background-color: #171717;
-    z-index: 10;
 }
 
 .league-toggle button {
@@ -123,11 +157,30 @@ body {
     animation: livePulse 2s infinite;
   }
   
+
+.live-score-container {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(96px, auto) minmax(0, 1fr);
+    align-items: center;
+    gap: 18px;
+    width: 100%;
+    max-width: 960px;
+    margin: 0 auto;
+}
+
+.live-score-container .team-name:first-child {
+    text-align: right;
+}
+
+.live-score-container .team-name:last-child {
+    text-align: left;
+}
   .live-score {
     font-size: 2.5rem;
     font-weight: 800;
     margin: 10px 0;
-    letter-spacing: 2px;
+    letter-spacing: 0;
+    text-align: center;
     color: white;
   }
   
@@ -153,5 +206,75 @@ body {
 .team-name {
     font-size: 2rem;
     font-weight: bold;
-    letter-spacing: 2px;    
+    letter-spacing: 0;
+    overflow-wrap: anywhere;
 }
+
+.scoreboard-status {
+    align-self: flex-start;
+    border-radius: 4px;
+    padding: 3px 8px;
+    margin-bottom: 8px;
+    background-color: #333;
+    color: #ddd;
+    font-size: 0.78rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+}
+
+.scoreboard-matchup {
+    display: grid;
+    grid-template-columns: minmax(120px, 1fr) 38px;
+    gap: 12px;
+    width: 100%;
+    align-items: center;
+    text-align: left;
+    font-size: 1rem;
+}
+
+.scoreboard-matchup strong {
+    text-align: right;
+    color: white;
+    font-size: 1.15rem;
+}
+
+.scoreboard-clock {
+    margin-top: 8px;
+    color: #aaa;
+    font-family: 'Consolas', Courier, monospace;
+    font-size: 0.95rem;
+    font-weight: 700;
+}
+
+.date-control {
+    display: flex;
+    gap: 6px;
+    padding: 4px;
+    border: 1px solid #555;
+    border-radius: 6px;
+    background-color: #171717;
+}
+
+.date-control input,
+.date-control button {
+    border: 0;
+    border-radius: 4px;
+    padding: 8px 10px;
+    background-color: transparent;
+    color: #ddd;
+    cursor: pointer;
+    font-weight: 700;
+}
+
+.date-control input {
+    color-scheme: dark;
+    max-width: 138px;
+}
+
+.date-control input:hover,
+.date-control button:hover {
+    background-color: #3f45b5;
+}
+
+
+

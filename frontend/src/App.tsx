@@ -1,4 +1,4 @@
-import {useEffect, useState} from 'react'
+import {useEffect, useRef, useState} from 'react'
 import './App.css'
 
 const API_BASE = 'http://localhost:8080/api';
@@ -38,11 +38,19 @@ const TEAM_COLORS: Record<string, string> = {
 
 type League = 'nba' | 'wnba';
 
+const dateInputValue = (date = new Date()) => {
+  const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return localDate.toISOString().slice(0, 10);
+};
+
+
 type LiveData = {
   winner: string;
   confidence?: number;
   home: string;
   away: string;
+  homeFullName?: string;
+  awayFullName?: string;
   score: string;
   clock: string;
   period: number;
@@ -53,6 +61,8 @@ type LiveData = {
 type Game = {
   home: string;
   away: string;
+  homeFullName?: string;
+  awayFullName?: string;
   gameId: string;
   awayScore?: number;
   homeScore?: number;
@@ -73,6 +83,8 @@ const formatClock = (clock?: string) => {
   return `${Number(match[1])}:${Math.floor(Number(match[2])).toString().padStart(2, '0')}`;
 };
 
+
+
 const liveDataFromGame = (game: Game): LiveData => {
   const homeScore = game.homeScore ?? 0;
   const awayScore = game.awayScore ?? 0;
@@ -83,6 +95,8 @@ const liveDataFromGame = (game: Game): LiveData => {
     isFinal: game.isFinal,
     home: game.home,
     away: game.away,
+    homeFullName: game.homeFullName,
+    awayFullName: game.awayFullName,
     score: `${awayScore} - ${homeScore}`,
     clock: game.isFinal ? 'FINAL' : formatClock(game.clock || game.statusText),
     period: game.period ?? 0,
@@ -92,7 +106,8 @@ const liveDataFromGame = (game: Game): LiveData => {
 
 function App() {
   const [league, setLeague] = useState<League>('wnba');
-  const [date, setDate] = useState("Date");
+  const [selectedDate, setSelectedDate] = useState(dateInputValue());
+  const [date, setDate] = useState(dateInputValue());
   const [games, setGames] = useState<Game[]>([]);
   // const [players, setPlayers] = useState<{away: string[], home: string[]; } | null>();
   const [winner, setWinner] = useState();
@@ -100,7 +115,16 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [selectedGameId, setSelectedGameId] = useState<string | null>(null);
   const [liveData, setLiveData] = useState<LiveData | null>(null);
+  const predictionRequestRef = useRef(0);
 
+
+  const loadScoreboard = async () => {
+    const response = await fetch(`${API_BASE}/scoreboard?league=${league}&date=${selectedDate}`);
+    const data = await response.json();
+    setDate(data.date);
+    setGames(data.teams);
+    return data.teams as Game[];
+  }
 
   useEffect(() => {
     setWinner(undefined);
@@ -108,28 +132,34 @@ function App() {
     setSelectedGameId(null);
     setLoading(false);
 
-    fetch(`${API_BASE}/scoreboard?league=${league}`).then(
-      response => response.json()
-    ).then(
-      data => {
-        setDate(data.date);
-        setGames(data.teams);
-        
-        fetch(`${API_BASE}/train?league=${league}`);
-      }
-    )
-  }, [league])
+    loadScoreboard().then(() => {
+      fetch(`${API_BASE}/train?league=${league}`);
+    });
+  }, [league, selectedDate])
 
-  // Poll for live stats if we have a game selected
+  useEffect(() => {
+    const interval = setInterval(() => {
+      loadScoreboard();
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [league, selectedDate]);
+
+  // Poll both scoreboard and live projection for selected games.
   useEffect(() => {
     let interval: number;
     if (selectedGameId) {
-      interval = setInterval(() => {
-        fetchLive(selectedGameId, false);
+      interval = setInterval(async () => {
+        const latestGames = await loadScoreboard();
+        const selectedGame = latestGames.find(game => game.gameId === selectedGameId);
+        if (selectedGame?.isLive || selectedGame?.isFinal || selectedGame?.status === 2) {
+          setLiveData(liveDataFromGame(selectedGame));
+        }
+        await fetchLive(selectedGameId, false);
       }, 5000); 
     }
     return () => clearInterval(interval);
-  }, [selectedGameId, league]);
+  }, [selectedGameId, league, selectedDate]);
 
   const fetchLive = async (id: string, clearOnFail = true) => {
     try {
@@ -149,7 +179,39 @@ function App() {
     return null;
   }
 
+  const fetchPregamePrediction = async (id: string, requestId: number) => {
+    try {
+      const res = await fetch(`${API_BASE}/predict/${id}?league=${league}`);
+      const data = await res.json();
+
+      if (requestId !== predictionRequestRef.current) {
+        return;
+      }
+
+      if (data.status === 'success') {
+        setWinner(data.winner);
+        setConf(data.conf);
+        setLoading(false);
+        return;
+      }
+
+      const message = String(data.message || '').toLowerCase();
+      if (res.status === 503 || message.includes('training') || message.includes('model')) {
+        setTimeout(() => fetchPregamePrediction(id, requestId), 3000);
+        return;
+      }
+    } catch {
+      // Network failures end the loading state; model warm-up responses retry above.
+    }
+
+    if (requestId === predictionRequestRef.current) {
+      setLoading(false);
+    }
+  }
+
   const fetchPredict = async (id: string) => {
+    const requestId = predictionRequestRef.current + 1;
+    predictionRequestRef.current = requestId;
     setLoading(true);
     setWinner(undefined);
     setLiveData(null);
@@ -177,46 +239,57 @@ function App() {
       return;
     }
 
-    fetch(`${API_BASE}/predict/${id}?league=${league}`).then(
-      res => res.json()
-    ).then(
-      data => {
-        if (data.status !== 'success') {
-          setLoading(false);
-          return;
-        }
-
-        setWinner(data.winner)
-        setConf(data.conf)
-        setLoading(false);
-      }
-    ).catch(() => setLoading(false));
+    fetchPregamePrediction(id, requestId);
   }
 
   return (
 
     <div>
-      <div className="league-toggle" aria-label="League selector">
-        <button
-          className={league === 'nba' ? 'active' : ''}
-          onClick={() => setLeague('nba')}
-        >
-          NBA
-        </button>
-        <button
-          className={league === 'wnba' ? 'active' : ''}
-          onClick={() => setLeague('wnba')}
-        >
-          WNBA
-        </button>
+      <div className="top-controls">
+        <div className="league-toggle" aria-label="League selector">
+          <button
+            className={league === 'nba' ? 'active' : ''}
+            onClick={() => setLeague('nba')}
+          >
+            NBA
+          </button>
+          <button
+            className={league === 'wnba' ? 'active' : ''}
+            onClick={() => setLeague('wnba')}
+          >
+            WNBA
+          </button>
+        </div>
+        <div className="date-control">
+          <input
+            aria-label="Scoreboard date"
+            type="date"
+            value={selectedDate}
+            onChange={(event) => setSelectedDate(event.target.value)}
+          />
+          <button onClick={() => setSelectedDate(dateInputValue())}>Today</button>
+        </div>
       </div>
       <h1 className = "title">{league.toUpperCase()} Predictor</h1>
-      <h2 className = "title" style={{ paddingBottom: '2rem' }}>Today's Games ({date})</h2>
+      <h2 className = "title" style={{ paddingBottom: '2rem' }}>Games ({date})</h2>
       <div className = "left-side">
         {games && games.length > 0 ? (
           games.map((game) => (
             <div className = "gameList" key={game.gameId}>
-              <strong>{game.home} vs {game.away}</strong> 
+              <div className="scoreboard-status">
+                {game.isFinal ? 'FINAL' : game.isLive || game.status === 2 ? 'LIVE' : game.statusText || 'PRE-GAME'}
+              </div>
+              <div className="scoreboard-matchup">
+                <span>{game.away}</span>
+                <strong>{game.awayScore ?? 0}</strong>
+              </div>
+              <div className="scoreboard-matchup">
+                <span>{game.home}</span>
+                <strong>{game.homeScore ?? 0}</strong>
+              </div>
+              <div className="scoreboard-clock">
+                {game.isFinal ? 'Game Ended' : game.isLive || game.status === 2 ? `Q${game.period ?? 0} ${formatClock(game.clock)}` : game.statusText || 'Not started'}
+              </div>
               { <button className = "stats" onClick = {() => fetchPredict(game.gameId)}>Open Stats</button> }
             </div>
           ))) : (<div>There are no games today</div>)}
@@ -231,9 +304,9 @@ function App() {
                   {liveData.isFinal ? 'FINAL' : 'LIVE'}
                 </div>
                 <div className="live-score-container">
-                  <span className="team-name" style={{ color: TEAM_COLORS[liveData.away] || '#f8ef39', marginRight: '1rem' }}>{liveData.away}</span>
+                  <span className="team-name" style={{ color: TEAM_COLORS[liveData.away] || '#f8ef39' }}>{liveData.awayFullName || liveData.away}</span>
                   <span className="live-score">{liveData.score}</span>
-                  <span className="team-name" style={{ color: TEAM_COLORS[liveData.home] || '#f8ef39', marginLeft: '1rem' }}>{liveData.home}</span>
+                  <span className="team-name" style={{ color: TEAM_COLORS[liveData.home] || '#f8ef39' }}>{liveData.homeFullName || liveData.home}</span>
                 </div>
                 <div className="live-clock">{liveData.isFinal ? 'Game Ended' : `Quarter ${liveData.period} - ${formatClock(liveData.clock)}`}</div>
                 <div className="win" style={{ marginTop: '1rem', color: liveData.isFinal ? '#fff' : '#646cff' }}>
@@ -252,9 +325,9 @@ function App() {
                   <div className="live-container" style={{ borderColor: '#646cff' }}>
                     <div className="live-badge" style={{ backgroundColor: '#646cff' }}>PRE-GAME</div>
                     <div className="live-score-container">
-                      <span className="team-name" style={{ color: TEAM_COLORS[game?.away || ''] || '#f8ef39', marginRight: '1rem' }}>{game?.away}</span>
+                      <span className="team-name" style={{ color: TEAM_COLORS[game?.away || ''] || '#f8ef39' }}>{game?.awayFullName || game?.away}</span>
                       <span className="live-score">VS</span>
-                      <span className="team-name" style={{ color: TEAM_COLORS[game?.home || ''] || '#f8ef39', marginLeft: '1rem' }}>{game?.home}</span>
+                      <span className="team-name" style={{ color: TEAM_COLORS[game?.home || ''] || '#f8ef39' }}>{game?.homeFullName || game?.home}</span>
                     </div>
                     <div className="live-clock">Matchup Analysis</div>
                     <div className="win" style={{ marginTop: '1rem' }}>
