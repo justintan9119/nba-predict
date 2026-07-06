@@ -1,7 +1,11 @@
+import env  # noqa: F401 - loads backend/.env before local imports read os.environ
+
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from nba_api.stats.endpoints import scoreboardv3, boxscoresummaryv3
-from predict import format_clock, train, predict_live, predict_matchup
+from predict import format_clock, model_diagnostics, predict_live, predict_matchup_details, start_training
+from odds import fetch_moneyline_odds
+from live_stats import live_game_stats
 import datetime
 
 app = Flask(__name__)
@@ -42,55 +46,109 @@ def full_team_name(team):
     return f"{city} {name}".strip() or name
 
 
+def team_logo_url(league, team_id):
+    return f'https://cdn.nba.com/logos/{league}/{team_id}/global/L/logo.svg'
+
+
+def game_payload(game, league):
+    away_team = game['awayTeam']
+    home_team = game['homeTeam']
+    return {
+        'gameId': game['gameId'],
+        'away': away_team['teamName'],
+        'home': home_team['teamName'],
+        'awayFullName': full_team_name(away_team),
+        'homeFullName': full_team_name(home_team),
+        'awayTeamId': away_team['teamId'],
+        'homeTeamId': home_team['teamId'],
+        'awayLogo': team_logo_url(league, away_team['teamId']),
+        'homeLogo': team_logo_url(league, home_team['teamId']),
+        'awayScore': away_team.get('score', 0),
+        'homeScore': home_team.get('score', 0),
+        'status': game.get('gameStatus'),
+        'statusText': game.get('gameStatusText', ''),
+        'clock': format_clock(game.get('gameClock', '')),
+        'period': game.get('period', 0),
+        'isLive': game.get('gameStatus') == 2,
+        'isFinal': game.get('gameStatus') == 3 or game.get('gameStatusText', '').lower() == 'final'
+    }
+
+
+def scoreboard_games(league, selected_date):
+    board = scoreboardv3.ScoreboardV3(game_date=selected_date, league_id=LEAGUE_IDS[league])
+    return [game_payload(game, league) for game in board.get_dict()['scoreboard']['games']]
+
+
+def find_scoreboard_game(game_id, league, selected_date):
+    return next((game for game in scoreboard_games(league, selected_date) if game['gameId'] == game_id), None)
+
+
 @app.route("/api/scoreboard", methods=['GET'])
 def get_scoreboard():
     league = get_league()
     selected_date = get_scoreboard_date()
-    board = scoreboardv3.ScoreboardV3(game_date=selected_date, league_id=LEAGUE_IDS[league])
-    games = board.get_dict()['scoreboard']['games']
-
-    all_games = [
-        {
-            'gameId': game['gameId'], 
-            'away': game['awayTeam']['teamName'],
-            'home': game['homeTeam']['teamName'],
-            'awayFullName': full_team_name(game['awayTeam']),
-            'homeFullName': full_team_name(game['homeTeam']),
-            'awayScore': game['awayTeam'].get('score', 0),
-            'homeScore': game['homeTeam'].get('score', 0),
-            'status': game.get('gameStatus'),
-            'statusText': game.get('gameStatusText', ''),
-            'clock': format_clock(game.get('gameClock', '')),
-            'period': game.get('period', 0),
-            'isLive': game.get('gameStatus') == 2,
-            'isFinal': game.get('gameStatus') == 3 or game.get('gameStatusText', '').lower() == 'final'
-        }
-        for game in games
-    ]
+    all_games = scoreboard_games(league, selected_date)
 
     return jsonify({
         'league': league,
-        'date': selected_date, 
+        'date': selected_date,
         'teams': all_games,
     })
 
+
+@app.route("/api/odds/<game_id>", methods=['GET'])
+def get_moneyline_odds(game_id):
+    league = get_league()
+    selected_date = get_scoreboard_date()
+    game = find_scoreboard_game(game_id, league, selected_date)
+    if not game:
+        return jsonify({'status': 'error', 'message': 'Game was not found on the selected scoreboard date.'}), 404
+    try:
+        odds = fetch_moneyline_odds(league, game)
+        return success_response(odds=odds)
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 503
+
 @app.route("/api/players/<game_id>", methods=['GET'])
 def get_players(game_id):
-    home_team_id, away_team_id = get_game_team_ids(game_id)
-    return success_response(homeTeamId=home_team_id, awayTeamId=away_team_id)
+    league = get_league()
+    try:
+        return success_response(**live_game_stats(
+            game_id,
+            league,
+            request.args.get('date'),
+            request.args.get('awayTeam'),
+            request.args.get('homeTeam'),
+            request.args.get('awayTeamId'),
+            request.args.get('homeTeamId'),
+        ))
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 503
 
 @app.route("/api/predict/<game_id>", methods=['GET'])
 def get_id(game_id):
     league = get_league()
     try:
         home_team_id, away_team_id = get_game_team_ids(game_id)
-        winner, confidence = predict_matchup(home_team_id, away_team_id, league)
-        return success_response(winner=winner, conf=round(confidence, 2))
+        prediction = predict_matchup_details(home_team_id, away_team_id, league)
+        return success_response(
+            winner=prediction['winner'],
+            conf=round(prediction['confidence'], 2),
+            probabilities={side: round(value, 4) for side, value in prediction['probabilities'].items()},
+            modelProbabilities={side: round(value, 4) for side, value in prediction['modelProbabilities'].items()},
+        )
     except Exception as e:
         return jsonify({
             'status': 'error',
             'message': str(e)
         }), 503
+
+@app.route("/api/model-diagnostics", methods=['GET'])
+def get_model_diagnostics():
+    diagnostics = model_diagnostics(get_league())
+    if diagnostics is None:
+        return jsonify({'status': 'error', 'message': 'Model diagnostics are unavailable until training completes.'}), 503
+    return success_response(diagnostics=diagnostics)
 
 @app.route("/api/live/<game_id>", methods=['GET'])
 def get_live_prediction(game_id):
@@ -107,8 +165,7 @@ def get_live_prediction(game_id):
 @app.route("/api/train", methods=['GET'])
 def silent_train():
     league = get_league()
-    train(None, None, league)
-    return jsonify({'status': 'trained', 'league': league})
+    return jsonify({'status': start_training(league), 'league': league})
 
 if __name__ == "__main__":
     app.run(debug=True, port=8080)

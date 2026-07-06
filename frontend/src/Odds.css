@@ -1,0 +1,182 @@
+.team-name {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.live-score-container .team-name:first-child { justify-content: flex-end; }
+
+.team-name img {
+    width: 38px;
+    height: 38px;
+    object-fit: contain;
+}
+
+.scoreboard-team {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.scoreboard-team img {
+    width: 24px;
+    height: 24px;
+    object-fit: contain;
+}
+
+.team-leaders {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    margin: 18px auto 0;
+    text-align: left;
+}
+
+.team-leader-list {
+    display: grid;
+    gap: 5px;
+    padding: 12px;
+    border: 1px solid #333;
+    border-radius: 8px;
+    background: #151515;
+}
+
+.team-leader-heading {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid #333;
+}
+
+.team-leader-heading img {
+    width: 24px;
+    height: 24px;
+    object-fit: contain;
+}
+
+.player-stat-header,
+.player-stat-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) repeat(3, 32px) repeat(2, 58px) repeat(2, 32px);
+    column-gap: 6px;
+    color: #d9d9d9;
+    font-size: 0.78rem;
+}
+
+.player-stat-header {
+    color: #aeb3e9;
+    font-weight: 800;
+}
+
+.player-stat-header span:not(:first-child),
+.player-stat-row span:not(:first-child) {
+    text-align: right;
+    font-family: 'Consolas', Courier, monospace;
+}
+
+.player-stat-row span:not(:first-child) {
+    color: #bfc2d8;
+    font-variant-numeric: tabular-nums;
+}
+
+.team-leaders-message {
+    margin-top: 18px;
+    color: #bfc2d8;
+    font-weight: 700;
+}
+
+.odds-api-control {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.odds-api-control button {
+    border: 1px solid #8e7a35;
+    border-radius: 4px;
+    padding: 7px 10px;
+    background: transparent;
+    color: #f2cd68;
+    cursor: pointer;
+    font-size: 0.78rem;
+    font-weight: 800;
+}
+
+.odds-api-control button.disabled {
+    border-color: #45d483;
+    color: #72e4a8;
+}
+
+.odds-api-control span {
+    color: #72e4a8;
+    font-size: 0.78rem;
+    font-weight: 700;
+}
+
+.odds-card {
+    display: grid;
+    gap: 10px;
+    max-width: 520px;
+    margin: 18px auto 0;
+    padding: 15px 18px;
+    border: 1px solid #365f8f;
+    border-radius: 8px;
+    background: #121f2b;
+    color: #eaf3ff;
+    text-align: left;
+}
+
+.odds-heading {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    color: #aeb3e9;
+    font-size: 0.78rem;
+    font-weight: 900;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.odds-heading em {
+    color: #d9e6ff;
+    font-style: normal;
+    letter-spacing: 0;
+    text-transform: none;
+}
+
+.odds-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 12px;
+    align-items: center;
+    padding: 10px 0 10px 12px;
+    border-left: 4px solid #646cff;
+    color: #d9d9d9;
+}
+
+.odds-row span {
+    color: var(--team-text-color, #d9d9d9);
+    font-weight: 800;
+    overflow-wrap: anywhere;
+}
+
+.odds-row strong {
+    color: #fff;
+    font-size: 1.12rem;
+}
+
+.odds-updated,
+.odds-message {
+    margin-top: 12px;
+    color: #bfc2d8;
+    font-weight: 700;
+}
+
+.odds-updated {
+    margin-top: 2px;
+    font-size: 0.82rem;
+    font-weight: 600;
+}

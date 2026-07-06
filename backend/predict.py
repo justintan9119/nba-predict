@@ -1,10 +1,14 @@
 import datetime
 import math
+import os
 import re
+import threading
 import time
 import warnings
 from collections import defaultdict
+from pathlib import Path
 
+import joblib
 import pandas as pd
 import requests
 from pandas.errors import PerformanceWarning
@@ -40,7 +44,7 @@ RESULT_FEATURES = ['WIN', 'POINT_DIFF']
 MODEL_SIGNAL_FEATURES = RATE_FEATURES + OPPONENT_FEATURES + RESULT_FEATURES
 ROLLING_WINDOWS = [5, 10, 20]
 LOCATION_SPLIT_WINDOW = 10
-CONTEXT_FEATURES = ['REST_DAYS', 'B2B', 'THREE_IN_FOUR', 'GAMES_PLAYED', 'ELO_PRE']
+CONTEXT_FEATURES = ['REST_DAYS', 'B2B', 'THREE_IN_FOUR', 'VENUE_CHANGE_B2B', 'GAMES_PLAYED', 'ELO_PRE']
 ELO_HOME_ADVANTAGE = 65
 ELO_K = 20
 MODEL_PARAMS = {
@@ -55,12 +59,55 @@ _MODEL_CACHE = {}
 _FEATURES_CACHE = {}
 _METRICS_CACHE = {}
 _SNAPSHOTS_CACHE = {}
+_TRAINING_LEAGUES = set()
+_MODEL_LOCK = threading.Lock()
+# The cache prevents a restart from downloading and fitting the same model again today.
+MODEL_CACHE_VERSION = 1
+MODEL_CACHE_DIR = Path(os.environ.get('MODEL_CACHE_DIR', Path(__file__).with_name('model_cache')))
+MODEL_TRAINING_SEASONS = max(1, int(os.environ.get('MODEL_TRAINING_SEASONS', '5')))
 
 warnings.simplefilter('ignore', PerformanceWarning)
 
 
 def normalize_league(league):
     return league if league in LEAGUES else 'nba'
+
+
+def model_cache_path(league):
+    league = normalize_league(league)
+    cache_date = datetime.date.today().isoformat()
+    return MODEL_CACHE_DIR / f'{league}-{cache_date}-v{MODEL_CACHE_VERSION}.joblib'
+
+
+def load_cached_model(league):
+    path = model_cache_path(league)
+    if not path.exists():
+        return False
+    try:
+        # A cache contains everything predict_matchup needs to answer immediately.
+        payload = joblib.load(path)
+        _MODEL_CACHE[league] = payload['model']
+        _FEATURES_CACHE[league] = payload['features']
+        _SNAPSHOTS_CACHE[league] = payload['snapshots']
+        _METRICS_CACHE[league] = payload.get('metrics', {})
+        print(f"--- Loaded {league.upper()} model cache: {path.name} ---")
+        return True
+    except (KeyError, OSError, ValueError, EOFError):
+        return False
+
+
+def save_model_cache(league):
+    path = model_cache_path(league)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        'model': _MODEL_CACHE[league],
+        'features': _FEATURES_CACHE[league],
+        'snapshots': _SNAPSHOTS_CACHE[league],
+        'metrics': _METRICS_CACHE.get(league, {}),
+    }
+    temporary_path = path.with_suffix('.tmp')
+    joblib.dump(payload, temporary_path)
+    temporary_path.replace(path)
 
 
 def get_seasons(num_seasons, league='nba'):
@@ -180,9 +227,11 @@ def add_rest_context(games):
     games['REST_DAYS'] = 7.0
     games['B2B'] = 0
     games['THREE_IN_FOUR'] = 0
+    games['VENUE_CHANGE_B2B'] = 0
 
     for _, group in games.groupby('TEAM_ID', sort=False):
         previous_dates = []
+        previous_is_home = None
         for idx, row in group.iterrows():
             game_date = row['GAME_DATE']
             if previous_dates:
@@ -191,7 +240,9 @@ def add_rest_context(games):
                 games.at[idx, 'B2B'] = 1 if rest_days <= 1 else 0
                 recent_games = sum(1 for date in previous_dates if 0 < (game_date - date).days <= 3)
                 games.at[idx, 'THREE_IN_FOUR'] = 1 if recent_games >= 2 else 0
+                games.at[idx, 'VENUE_CHANGE_B2B'] = int(rest_days <= 1 and previous_is_home != row['IS_HOME'])
             previous_dates.append(game_date)
+            previous_is_home = row['IS_HOME']
 
     return games
 
@@ -309,6 +360,10 @@ def build_team_snapshots(games, league):
         snapshot['REST_DAYS'] = rest_days
         snapshot['B2B'] = 1 if rest_days <= 1 else 0
         snapshot['THREE_IN_FOUR'] = 1 if recent_games >= 2 else 0
+        snapshot['VENUE_CHANGE_B2B'] = 0
+        last_is_home = int(group['IS_HOME'].iloc[-1])
+        snapshot['HOME_VENUE_CHANGE_B2B'] = int(rest_days <= 1 and last_is_home == 0)
+        snapshot['AWAY_VENUE_CHANGE_B2B'] = int(rest_days <= 1 and last_is_home == 1)
         snapshots[int(team_id)] = snapshot
 
     return snapshots
@@ -405,12 +460,12 @@ def choose_model_by_time_validation(X_train, y_train, X_test, y_test):
 
 def ensure_model(league='nba'):
     league = normalize_league(league)
-    if league in _MODEL_CACHE:
-        return
+    with _MODEL_LOCK:
+        if league in _MODEL_CACHE or load_cached_model(league):
+            return
 
-    num_seasons = 10 if datetime.datetime.now().month in [4, 5, 6] else 5
     print(f"--- Training {league.upper()} pregame model ---")
-    games = fetch_game_logs(get_seasons(num_seasons, league), league)
+    games = fetch_game_logs(get_seasons(MODEL_TRAINING_SEASONS, league), league)
     X, y, dates = build_training_data(games)
     order = dates.sort_values().index
     X = X.loc[order].reset_index(drop=True)
@@ -433,15 +488,40 @@ def ensure_model(league='nba'):
 
     model = make_model(y, selected_model_name)
     model.fit(X, y)
-    _MODEL_CACHE[league] = model
-    _FEATURES_CACHE[league] = X.columns.tolist()
-    _SNAPSHOTS_CACHE[league] = build_team_snapshots(games, league)
+    with _MODEL_LOCK:
+        _MODEL_CACHE[league] = model
+        _FEATURES_CACHE[league] = X.columns.tolist()
+        _SNAPSHOTS_CACHE[league] = build_team_snapshots(games, league)
+        save_model_cache(league)
     print(f"--- {league.upper()} Training Complete ---")
 
 
 def is_model_ready(league='nba'):
     league = normalize_league(league)
     return league in _MODEL_CACHE and league in _FEATURES_CACHE
+
+
+def start_training(league='nba'):
+    league = normalize_league(league)
+    with _MODEL_LOCK:
+        if league in _MODEL_CACHE or load_cached_model(league):
+            return 'ready'
+        if league in _TRAINING_LEAGUES:
+            return 'training'
+        _TRAINING_LEAGUES.add(league)
+
+    # Training can take minutes on a fresh cache, so keep the web request responsive.
+    def train_in_background():
+        try:
+            ensure_model(league)
+        except Exception as error:
+            print(f"--- {league.upper()} training failed: {error} ---")
+        finally:
+            with _MODEL_LOCK:
+                _TRAINING_LEAGUES.discard(league)
+
+    threading.Thread(target=train_in_background, name=f'{league}-model-training', daemon=True).start()
+    return 'training'
 
 
 def train(team_id1, team_id2, league='nba'):
@@ -468,7 +548,7 @@ def current_team_snapshots(league):
 def location_aware_snapshot(snapshot, location):
     values = {}
     for feature in snapshot_feature_names():
-        if feature.startswith('LOC_'):
+        if feature.startswith('LOC_') or feature == 'VENUE_CHANGE_B2B':
             values[feature] = snapshot.get(f'{location}_{feature}', snapshot.get(feature, 0))
         else:
             values[feature] = snapshot.get(feature, 0)
@@ -485,11 +565,21 @@ def feature_row_from_snapshots(home_snapshot, away_snapshot, feature_columns):
     return row[feature_columns]
 
 
-def predict_matchup(team_id1, team_id2, league='nba'):
+def predict_matchup_details(team_id1, team_id2, league='nba'):
     league = normalize_league(league)
     if not is_model_ready(league):
         raise RuntimeError("Model is still training. Try again in a moment.")
     return match_up(_MODEL_CACHE[league], team_id1, team_id2, _FEATURES_CACHE[league], league)
+
+
+def predict_matchup(team_id1, team_id2, league='nba'):
+    prediction = predict_matchup_details(team_id1, team_id2, league)
+    return prediction['winner'], prediction['confidence']
+
+
+def model_diagnostics(league='nba'):
+    league = normalize_league(league)
+    return _METRICS_CACHE.get(league)
 
 
 def match_up(model, team1_id, team2_id, feature_columns, league='nba'):
@@ -498,17 +588,27 @@ def match_up(model, team1_id, team2_id, feature_columns, league='nba'):
     snapshots = current_team_snapshots(league)
 
     if t1_id not in snapshots or t2_id not in snapshots:
-        return "Unknown", 0
+        return {
+            'winner': 'Unknown',
+            'confidence': 0,
+            'probabilities': {'home': 0.5, 'away': 0.5},
+            'modelProbabilities': {'home': 0.5, 'away': 0.5},
+        }
 
     game_features = feature_row_from_snapshots(snapshots[t1_id], snapshots[t2_id], feature_columns)
     probability = model.predict_proba(game_features)[0]
-    home_win_probability = probability[1]
+    model_home_probability = float(probability[1])
     team1_name = snapshots[t1_id]['TEAM_NAME']
     team2_name = snapshots[t2_id]['TEAM_NAME']
-    home_win_probability = injury_adjusted_home_probability(home_win_probability, team1_name, team2_name, league)
+    home_win_probability = injury_adjusted_home_probability(model_home_probability, team1_name, team2_name, league)
     winner = team1_name if home_win_probability >= 0.5 else team2_name
     confidence = max(home_win_probability, 1 - home_win_probability) * 100
-    return winner, confidence
+    return {
+        'winner': winner,
+        'confidence': confidence,
+        'probabilities': {'home': home_win_probability, 'away': 1 - home_win_probability},
+        'modelProbabilities': {'home': model_home_probability, 'away': 1 - model_home_probability},
+    }
 
 
 def period_seconds(league):

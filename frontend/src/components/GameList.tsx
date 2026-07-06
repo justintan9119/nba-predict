@@ -1,0 +1,43 @@
+import type {Game} from '../types';
+import {formatClock} from '../utils';
+
+const hideBrokenLogo = (event: React.SyntheticEvent<HTMLImageElement>) => {
+  event.currentTarget.style.display = 'none';
+};
+
+type GameListProps = {
+  games: Game[];
+  onSelect: (gameId: string) => void;
+};
+
+export function GameList({games, onSelect}: GameListProps) {
+  if (games.length === 0) {
+    return <div>There are no games today</div>;
+  }
+
+  return (
+    <div className="left-side">
+      {games.map((game) => (
+        <div className="gameList" key={game.gameId}>
+          <div className="scoreboard-status">
+            {game.isFinal ? 'FINAL' : game.isLive || game.status === 2 ? 'LIVE' : game.statusText || 'PRE-GAME'}
+          </div>
+          <div className="scoreboard-matchup">
+            <span className="scoreboard-team">{game.awayLogo && <img src={game.awayLogo} alt="" onError={hideBrokenLogo} />}{game.away}</span>
+            <strong>{game.awayScore ?? 0}</strong>
+          </div>
+          <div className="scoreboard-matchup">
+            <span className="scoreboard-team">{game.homeLogo && <img src={game.homeLogo} alt="" onError={hideBrokenLogo} />}{game.home}</span>
+            <strong>{game.homeScore ?? 0}</strong>
+          </div>
+          <div className="scoreboard-clock">
+            {game.isFinal ? 'Game Ended' : game.isLive || game.status === 2
+              ? `Q${game.period ?? 0} ${formatClock(game.clock)}`
+              : game.statusText || 'Not started'}
+          </div>
+          <button className="stats" onClick={() => onSelect(game.gameId)}>Open Stats</button>
+        </div>
+      ))}
+    </div>
+  );
+}
