@@ -1,16 +1,28 @@
-import type {Game} from '../types';
+import type {Game, League} from '../types';
 import {formatClock} from '../utils';
 
 const hideBrokenLogo = (event: React.SyntheticEvent<HTMLImageElement>) => {
   event.currentTarget.style.display = 'none';
 };
 
+const formatStartTime = (startTime?: string) => {
+  if (!startTime) {
+    return '';
+  }
+  const parsed = new Date(startTime);
+  if (Number.isNaN(parsed.getTime())) {
+    return startTime;
+  }
+  return parsed.toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'});
+};
+
 type GameListProps = {
   games: Game[];
+  league: League;
   onSelect: (gameId: string) => void;
 };
 
-export function GameList({games, onSelect}: GameListProps) {
+export function GameList({games, league, onSelect}: GameListProps) {
   if (games.length === 0) {
     return <div>There are no games today</div>;
   }
@@ -32,8 +44,8 @@ export function GameList({games, onSelect}: GameListProps) {
           </div>
           <div className="scoreboard-clock">
             {game.isFinal ? 'Game Ended' : game.isLive || game.status === 2
-              ? `Q${game.period ?? 0} ${formatClock(game.clock)}`
-              : game.statusText || 'Not started'}
+              ? league === 'mlb' ? game.clock || 'In progress' : `Q${game.period ?? 0} ${formatClock(game.clock)}`
+              : formatStartTime(game.startTime) || game.statusText || 'Not started'}
           </div>
           <button className="stats" onClick={() => onSelect(game.gameId)}>Open Stats</button>
         </div>

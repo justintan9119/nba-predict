@@ -19,7 +19,8 @@ A simplified full-stack application for predicting NBA game winners using team s
 - `frontend/src/types.ts`: Shared TypeScript shapes for games, odds, and predictions.
 - `backend/app.py`: Flask routes that the frontend calls.
 - `backend/predict.py`: Data preparation, model training, cache loading, and prediction calculations.
-- `backend/odds.py`: Moneyline odds API integration.
+- `backend/mlb_predict.py`: MLB schedule, sklearn model training, live score, and advanced-metric winner prediction through `python-mlb-statsapi`.
+- `backend/odds.py`: Kalshi market-price integration.
 
 ## How to Run
 
@@ -29,6 +30,9 @@ A simplified full-stack application for predicting NBA game winners using team s
    python refresh_data.py
    ```
 2. **Start Backend:**
+   ```bash
+   pip install python-mlb-statsapi
+   ```
    ```bash
    python app.py
    ```
@@ -42,7 +46,22 @@ A simplified full-stack application for predicting NBA game winners using team s
 
 `/api/predict/<game_id>` returns calibrated, injury-adjusted `probabilities.home` and `probabilities.away`, plus the underlying pre-injury `modelProbabilities` values. `/api/model-diagnostics?league=wnba` exposes the held-out log loss, Brier score, and calibration bins used to inspect whether predicted probability bands match actual win rates.
 
-For pre-game matchups, `/api/odds/<game_id>` returns American moneylines when a matching event is available from The Odds API. The frontend displays those moneylines alongside the model projection.
+For matchups, `/api/odds/<game_id>` returns American-style prices converted from Kalshi YES/NO contract prices when a matching sports event is available. The frontend displays those market prices alongside the model projection.
+
+Kalshi order placement is disabled by default. To test the model-side edge order flow without placing real orders:
+
+```env
+KALSHI_TRADING_ENABLED=1
+KALSHI_DRY_RUN=1
+KALSHI_BANKROLL_CENTS=9000
+KALSHI_KELLY_FRACTION=0.25
+KALSHI_MAX_BANKROLL_FRACTION=0.05
+KALSHI_BET_MIN_COST_CENTS=100
+KALSHI_BET_MAX_COST_CENTS=300
+KALSHI_MIN_EDGE=0.03
+```
+
+Stake size uses quarter Kelly for a YES contract: `bankroll * ((model_probability - kalshi_price) / (1 - kalshi_price)) * 0.25`, then applies a $1 minimum and the lower of the hard cap or 5% of bankroll. To submit real orders, install `cryptography` in the backend environment, set `KALSHI_API_KEY_ID` plus either `KALSHI_PRIVATE_KEY_PATH` or `KALSHI_PRIVATE_KEY_PEM`, then set `KALSHI_DRY_RUN=0`. The app only considers orders before game start, only for the model-projected winner, only when Kalshi contract edge (`model_probability - kalshi_price`) and EV are positive, and it checks existing Kalshi positions/resting orders for that game before sending a real order.
 
 ## Model Startup
 

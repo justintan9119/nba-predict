@@ -634,6 +634,8 @@ def score_adjusted_projection(home_name, away_name, home_score, away_score, peri
     return {
         'winner': winner,
         'confidence': round(confidence * 100, 2),
+        'probabilities': {'home': final_home_prob, 'away': 1 - final_home_prob},
+        'modelProbabilities': {'home': final_home_prob, 'away': 1 - final_home_prob},
         'home': home_name,
         'away': away_name,
         'homeFullName': home_full_name or home_name,

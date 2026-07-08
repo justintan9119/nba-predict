@@ -7,8 +7,8 @@
 .live-score-container .team-name:first-child { justify-content: flex-end; }
 
 .team-name img {
-    width: 38px;
-    height: 38px;
+    width: 30px;
+    height: 30px;
     object-fit: contain;
 }
 
@@ -78,6 +78,75 @@
 .player-stat-row span:not(:first-child) {
     color: #bfc2d8;
     font-variant-numeric: tabular-nums;
+}
+
+.mlb-player-sections {
+    display: grid;
+    gap: 8px;
+}
+
+.mlb-player-section {
+    display: grid;
+    gap: 2px;
+}
+
+.mlb-pitcher-stat-header,
+.mlb-pitcher-stat-row,
+.mlb-batter-stat-header,
+.mlb-batter-stat-row {
+    display: grid;
+    column-gap: 6px;
+    align-items: center;
+    color: #d9d9d9;
+    font-size: 0.76rem;
+}
+
+.mlb-pitcher-stat-header,
+.mlb-pitcher-stat-row {
+    grid-template-columns: minmax(120px, 1fr) 38px 54px repeat(4, 38px);
+}
+
+.mlb-batter-stat-header,
+.mlb-batter-stat-row {
+    grid-template-columns: minmax(120px, 1fr) 54px repeat(5, 34px) 48px;
+}
+
+.mlb-batter-stat-header.live,
+.mlb-batter-stat-row.live {
+    grid-template-columns: minmax(120px, 1fr) 54px repeat(5, 34px);
+}
+
+.mlb-pitcher-stat-header,
+.mlb-batter-stat-header {
+    color: #aeb3e9;
+    font-weight: 800;
+}
+
+.mlb-pitcher-stat-header span:not(:first-child),
+.mlb-pitcher-stat-row span:not(:first-child),
+.mlb-batter-stat-header span:not(:first-child),
+.mlb-batter-stat-row span:not(:first-child) {
+    text-align: right;
+    font-family: 'Consolas', Courier, monospace;
+}
+
+.mlb-pitcher-stat-row span:first-child,
+.mlb-batter-stat-row span:first-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.mlb-pitcher-stat-row span:not(:first-child),
+.mlb-batter-stat-row span:not(:first-child) {
+    color: #bfc2d8;
+    font-variant-numeric: tabular-nums;
+}
+
+.mlb-player-section.batters-start {
+    margin-top: 6px;
+    padding-top: 8px;
+    border-top: 1px solid #3a3a3a;
 }
 
 .team-leaders-message {
@@ -168,6 +237,60 @@
     font-size: 1.12rem;
 }
 
+.kalshi-user-bets {
+    display: grid;
+    gap: 8px;
+    margin-top: 4px;
+    padding-top: 12px;
+    border-top: 1px solid #284761;
+}
+
+.kalshi-user-bets-heading {
+    color: #72e4a8;
+    font-size: 0.76rem;
+    font-weight: 900;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.kalshi-user-bet {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 4px 10px;
+    align-items: center;
+    padding: 9px 10px;
+    border: 1px solid #2d5b46;
+    border-radius: 6px;
+    background: #11251d;
+}
+
+.kalshi-user-bet span {
+    font-weight: 900;
+    overflow-wrap: anywhere;
+}
+
+.kalshi-user-bet strong {
+    color: #fff;
+    font-size: 0.78rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+.kalshi-user-bet small {
+    display: flex;
+    flex-wrap: wrap;
+    grid-column: 1 / -1;
+    gap: 8px;
+    color: #c8dbd2;
+    font-size: 0.82rem;
+    font-weight: 700;
+}
+
+.kalshi-user-bet em {
+    color: #8fbca7;
+    font-style: normal;
+}
+
 .odds-updated,
 .odds-message {
     margin-top: 12px;
@@ -179,4 +302,153 @@
     margin-top: 2px;
     font-size: 0.82rem;
     font-weight: 600;
+}
+
+.bet-edge-card {
+    display: grid;
+    gap: 10px;
+    max-width: 520px;
+    margin: 12px auto 0;
+    padding: 15px 18px;
+    border: 1px solid #3b4c34;
+    border-radius: 8px;
+    background: #162115;
+    color: #edf8eb;
+    text-align: left;
+}
+
+.bet-edge-card.neutral {
+    border-color: #5a5734;
+    background: #221f14;
+    color: #f4efd6;
+}
+
+.bet-edge-heading {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    color: #b8d8af;
+    font-size: 0.78rem;
+    font-weight: 900;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.bet-edge-card.neutral .bet-edge-heading {
+    color: #d9cb91;
+}
+
+.bet-edge-heading strong {
+    color: #fff;
+    letter-spacing: 0;
+}
+
+.bet-edge-summary {
+    color: #d7e6d2;
+    font-weight: 700;
+}
+
+.bet-edge-card.neutral .bet-edge-summary {
+    color: #ece3bf;
+}
+
+.bet-edge-table {
+    display: grid;
+    gap: 4px;
+}
+
+.bet-edge-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) repeat(6, minmax(48px, auto));
+    gap: 10px;
+    align-items: center;
+    font-size: 0.8rem;
+}
+
+.bet-edge-header {
+    color: #a9c7a1;
+    font-size: 0.74rem;
+    font-weight: 900;
+    text-transform: uppercase;
+}
+
+.bet-edge-card.neutral .bet-edge-header {
+    color: #ccbe8f;
+}
+
+.bet-edge-row span:not(:first-child) {
+    text-align: right;
+    font-family: 'Consolas', Courier, monospace;
+    font-variant-numeric: tabular-nums;
+}
+
+.advanced-metrics {
+    display: grid;
+    gap: 10px;
+    max-width: 760px;
+    margin: 18px auto 0;
+    text-align: left;
+}
+
+.advanced-metrics-heading {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    color: #aeb3e9;
+    font-size: 0.78rem;
+    font-weight: 900;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.advanced-metrics-heading em {
+    color: #d9e6ff;
+    font-style: normal;
+    letter-spacing: 0;
+    text-transform: none;
+}
+
+.advanced-metrics-table {
+    display: grid;
+    gap: 2px;
+    padding: 12px;
+    border: 1px solid #333;
+    border-radius: 8px;
+    background: #151515;
+}
+
+.advanced-metric-row {
+    display: grid;
+    grid-template-columns: minmax(150px, 1fr) repeat(3, minmax(58px, 86px));
+    gap: 8px;
+    align-items: center;
+    min-height: 30px;
+    color: #d9d9d9;
+    font-size: 0.82rem;
+}
+
+.advanced-metric-row span:not(:first-child) {
+    text-align: right;
+    font-family: 'Consolas', Courier, monospace;
+    font-variant-numeric: tabular-nums;
+}
+
+.advanced-metric-header {
+    color: #aeb3e9;
+    font-size: 0.76rem;
+    font-weight: 900;
+    text-transform: uppercase;
+}
+
+.metric-leader {
+    color: #72e4a8;
+    font-weight: 900;
+}
+
+.positive-edge {
+    color: #72e4a8;
+}
+
+.negative-edge {
+    color: #ff8f8f;
 }

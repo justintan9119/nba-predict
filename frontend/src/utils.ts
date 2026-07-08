@@ -12,6 +12,23 @@ export const formatAmericanOdds = (value?: number) => {
   return value > 0 ? `+${value}` : `${value}`;
 };
 
+export const impliedProbabilityFromAmericanOdds = (value?: number) => {
+  if (typeof value !== 'number' || value === 0) {
+    return null;
+  }
+  if (value > 0) {
+    return 100 / (value + 100);
+  }
+  return Math.abs(value) / (Math.abs(value) + 100);
+};
+
+export const formatPercent = (value?: number | null, digits = 1) => {
+  if (typeof value !== 'number' || Number.isNaN(value)) {
+    return '--';
+  }
+  return `${(value * 100).toFixed(digits)}%`;
+};
+
 export const formatClock = (clock?: string) => {
   const match = clock?.match(/PT(\d+)M(\d+(?:\.\d+)?)S?/);
   if (!match) {

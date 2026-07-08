@@ -5,7 +5,10 @@ from flask_cors import CORS
 from nba_api.stats.endpoints import scoreboardv3, boxscoresummaryv3
 from predict import format_clock, model_diagnostics, predict_live, predict_matchup_details, start_training
 from odds import fetch_moneyline_odds
+from kalshi_trading import kalshi_user_bets_for_odds, maybe_place_edge_bet
 from live_stats import live_game_stats
+from mlb_players import mlb_game_player_stats
+from mlb_predict import mlb_live_projection, mlb_model_diagnostics, mlb_predict_game, mlb_scoreboard_games, start_mlb_training
 import datetime
 
 app = Flask(__name__)
@@ -15,6 +18,7 @@ LEAGUE_IDS = {
     'nba': '00',
     'wnba': '10',
 }
+VALID_LEAGUES = set(LEAGUE_IDS) | {'mlb'}
 
 
 def success_response(**data):
@@ -23,7 +27,7 @@ def success_response(**data):
 
 def get_league():
     league = request.args.get('league', 'nba').lower()
-    return league if league in LEAGUE_IDS else 'nba'
+    return league if league in VALID_LEAGUES else 'nba'
 
 
 def get_scoreboard_date():
@@ -50,6 +54,17 @@ def team_logo_url(league, team_id):
     return f'https://cdn.nba.com/logos/{league}/{team_id}/global/L/logo.svg'
 
 
+def scheduled_start_time(game):
+    return (
+        game.get('gameTimeUTC')
+        or game.get('gameTimeEst')
+        or game.get('gameTimeEastern')
+        or game.get('gameEt')
+        or game.get('gameTime')
+        or game.get('gameDateTimeUTC')
+    )
+
+
 def game_payload(game, league):
     away_team = game['awayTeam']
     home_team = game['homeTeam']
@@ -67,6 +82,7 @@ def game_payload(game, league):
         'homeScore': home_team.get('score', 0),
         'status': game.get('gameStatus'),
         'statusText': game.get('gameStatusText', ''),
+        'startTime': scheduled_start_time(game),
         'clock': format_clock(game.get('gameClock', '')),
         'period': game.get('period', 0),
         'isLive': game.get('gameStatus') == 2,
@@ -75,6 +91,8 @@ def game_payload(game, league):
 
 
 def scoreboard_games(league, selected_date):
+    if league == 'mlb':
+        return mlb_scoreboard_games(selected_date)
     board = scoreboardv3.ScoreboardV3(game_date=selected_date, league_id=LEAGUE_IDS[league])
     return [game_payload(game, league) for game in board.get_dict()['scoreboard']['games']]
 
@@ -105,13 +123,44 @@ def get_moneyline_odds(game_id):
         return jsonify({'status': 'error', 'message': 'Game was not found on the selected scoreboard date.'}), 404
     try:
         odds = fetch_moneyline_odds(league, game)
+        if odds:
+            try:
+                odds['userBets'] = kalshi_user_bets_for_odds(odds)
+            except Exception as error:
+                odds['userBets'] = []
+                odds['userBetsError'] = str(error)
         return success_response(odds=odds)
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 503
+
+
+@app.route("/api/kalshi/edge-bet/<game_id>", methods=['POST'])
+def place_kalshi_edge_bet(game_id):
+    league = get_league()
+    selected_date = get_scoreboard_date()
+    game = find_scoreboard_game(game_id, league, selected_date)
+    if not game:
+        return jsonify({'status': 'error', 'message': 'Game was not found on the selected scoreboard date.'}), 404
+    try:
+        if league == 'mlb':
+            prediction = mlb_predict_game(game_id, selected_date)
+        else:
+            home_team_id, away_team_id = get_game_team_ids(game_id)
+            prediction = predict_matchup_details(home_team_id, away_team_id, league)
+        odds = fetch_moneyline_odds(league, game)
+        result = maybe_place_edge_bet(game, odds, prediction.get('probabilities'))
+        return success_response(result=result)
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 503
 
 @app.route("/api/players/<game_id>", methods=['GET'])
 def get_players(game_id):
     league = get_league()
+    if league == 'mlb':
+        try:
+            return success_response(**mlb_game_player_stats(game_id))
+        except Exception as e:
+            return jsonify({'status': 'error', 'message': str(e)}), 503
     try:
         return success_response(**live_game_stats(
             game_id,
@@ -129,13 +178,18 @@ def get_players(game_id):
 def get_id(game_id):
     league = get_league()
     try:
-        home_team_id, away_team_id = get_game_team_ids(game_id)
-        prediction = predict_matchup_details(home_team_id, away_team_id, league)
+        if league == 'mlb':
+            prediction = mlb_predict_game(game_id, request.args.get('date'))
+        else:
+            home_team_id, away_team_id = get_game_team_ids(game_id)
+            prediction = predict_matchup_details(home_team_id, away_team_id, league)
         return success_response(
             winner=prediction['winner'],
             conf=round(prediction['confidence'], 2),
             probabilities={side: round(value, 4) for side, value in prediction['probabilities'].items()},
             modelProbabilities={side: round(value, 4) for side, value in prediction['modelProbabilities'].items()},
+            metrics=prediction.get('metrics'),
+            analysis=prediction.get('analysis'),
         )
     except Exception as e:
         return jsonify({
@@ -145,6 +199,11 @@ def get_id(game_id):
 
 @app.route("/api/model-diagnostics", methods=['GET'])
 def get_model_diagnostics():
+    if get_league() == 'mlb':
+        diagnostics = mlb_model_diagnostics()
+        if diagnostics is None:
+            return jsonify({'status': 'error', 'message': 'MLB model diagnostics are unavailable until training completes.'}), 503
+        return success_response(diagnostics=diagnostics)
     diagnostics = model_diagnostics(get_league())
     if diagnostics is None:
         return jsonify({'status': 'error', 'message': 'Model diagnostics are unavailable until training completes.'}), 503
@@ -154,7 +213,7 @@ def get_model_diagnostics():
 def get_live_prediction(game_id):
     league = get_league()
     try:
-        prediction = predict_live(game_id, league)
+        prediction = mlb_live_projection(game_id) if league == 'mlb' else predict_live(game_id, league)
         return success_response(data=prediction)
     except Exception as e:
         return jsonify({
@@ -165,6 +224,8 @@ def get_live_prediction(game_id):
 @app.route("/api/train", methods=['GET'])
 def silent_train():
     league = get_league()
+    if league == 'mlb':
+        return jsonify({'status': start_mlb_training(), 'league': league})
     return jsonify({'status': start_training(league), 'league': league})
 
 if __name__ == "__main__":

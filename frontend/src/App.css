@@ -1,8 +1,9 @@
 .gameList {
+    box-sizing: border-box;
+    width: 100%;
     border: 2px solid #4a4a4a;
     border-radius: 8px;
     padding: 15px;
-    margin-bottom: 10px;
     
     display: flex;
     flex-direction: column;
@@ -56,67 +57,129 @@ button.stats:hover {
     background-color: #646cff;
 }
 
-.top-controls {
-    position: fixed;
-    top: 18px;
-    right: 18px;
+.app-nav {
+    position: sticky;
+    top: 0;
+    z-index: 20;
     display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 8px;
-    z-index: 10;
+    align-items: center;
+    gap: 18px;
+    min-height: 58px;
+    padding: 0 28px;
+    border-bottom: 1px solid #2a2a2a;
+    background: linear-gradient(180deg, #646cff 0 4px, #111 4px 100%);
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.32);
+}
+
+.nav-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    min-width: max-content;
+    color: white;
+    font-weight: 900;
+}
+
+.nav-mark {
+    display: grid;
+    place-items: center;
+    width: 38px;
+    height: 34px;
+    border-radius: 3px;
+    background-color: #646cff;
+    color: white;
+    font-size: 0.95rem;
+    line-height: 1;
+    letter-spacing: 0;
+}
+
+.nav-title {
+    font-size: 1.15rem;
+    letter-spacing: 0;
+    text-transform: uppercase;
+}
+
+.nav-tools {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-left: auto;
+}
+
+.nav-section-label {
+    color: #c7c7c7;
+    font-size: 0.78rem;
+    font-weight: 800;
+    text-transform: uppercase;
 }
 
 .league-toggle {
     display: flex;
-    gap: 4px;
-    border: 1px solid #555;
-    border-radius: 6px;
-    padding: 4px;
+    align-self: stretch;
+    gap: 0;
+    border-left: 1px solid #2e2e2e;
+    border-right: 1px solid #2e2e2e;
     background-color: #171717;
 }
 
 .league-toggle button {
     border: 0;
-    border-radius: 4px;
-    padding: 8px 12px;
+    border-radius: 0;
+    padding: 0 18px;
     background-color: transparent;
-    color: #ddd;
+    color: #e5e5e5;
     cursor: pointer;
-    font-weight: 700;
+    font-weight: 900;
+    letter-spacing: 0;
+    text-transform: uppercase;
 }
 
 .league-toggle button.active {
-    background-color: #646cff;
+    background-color: #2b2b2b;
     color: white;
+    box-shadow: inset 0 -4px 0 #646cff;
 }
 
 .league-toggle button:hover {
-    background-color: #3f45b5;
+    background-color: #242424;
 }
 
 body { 
     background-color: #1f1f1f;
     color: rgb(216, 215, 215);
     font-family: sans-serif;
-    padding: 2.5%;
+    padding: 0;
+    margin: 0;
+}
+
+.app-shell {
+    padding: 24px 2.5% 2.5%;
+}
+
+.app-content {
+    display: grid;
+    grid-template-columns: minmax(0, 15%) minmax(0, 1fr);
+    align-items: start;
+    column-gap: 3%;
 }
 
 .left-side {
-    flex-direction: column;
+    grid-column: 1;
+    display: grid;
     align-items:center;
-    display:inline-block;
-
+    gap: 30px;
+    min-width: 0;
+    width: 100%;
+    
 }
 .right-side {
-    padding-left: 20px;
-
-    position:absolute;
-    /* background-color:pink; */
+    grid-column: 2;
 
     text-align: center;
-    display:inline;
-    width: 69%;
+    display: grid;
+    gap: 16px;
+    min-width: 0;
+    width: 100%;
 }
 
 .loader {
@@ -126,7 +189,7 @@ body {
     animation: pulse 1.5s infinite ease-in-out;
 }
 .win {
-    font-size: 1.2rem;
+    font-size: 1rem;
     color: #646cff;
 }
 
@@ -140,11 +203,22 @@ body {
 .live-container {
     background-color: #1a1a1a;
     border-radius: 12px;
-    padding: 20px;
+    padding: 14px 16px;
     border: 2px solid #ff4444;
     box-shadow: 0 4px 20px rgba(255, 68, 68, 0.2);
     text-align: center;
   }
+
+.matchup-sticky {
+    position: sticky;
+    top: 74px;
+    z-index: 9;
+}
+
+.matchup-details {
+    padding: 16px 0 24px;
+    border-top: 1px solid #333;
+}
   
   .live-badge {
     background-color: #ff4444;
@@ -160,9 +234,9 @@ body {
 
 .live-score-container {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(96px, auto) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) minmax(72px, auto) minmax(0, 1fr);
     align-items: center;
-    gap: 18px;
+    gap: 12px;
     width: 100%;
     max-width: 960px;
     margin: 0 auto;
@@ -176,9 +250,9 @@ body {
     text-align: left;
 }
   .live-score {
-    font-size: 2.5rem;
+    font-size: 1.8rem;
     font-weight: 800;
-    margin: 10px 0;
+    margin: 6px 0;
     letter-spacing: 0;
     text-align: center;
     color: white;
@@ -186,10 +260,10 @@ body {
   
   .live-clock {
     font-family: 'Consolas', Courier, monospace;
-    font-size: 1.2rem;
+    font-size: 0.95rem;
     font-weight: bold;
     color: #aaa;
-    margin-bottom: 20px;
+    margin-bottom: 12px;
   }
   
   @keyframes livePulse {
@@ -204,7 +278,7 @@ body {
     100% { opacity: 0.5; }
 }
 .team-name {
-    font-size: 2rem;
+    font-size: 1.35rem;
     font-weight: bold;
     letter-spacing: 0;
     overflow-wrap: anywhere;
@@ -250,9 +324,9 @@ body {
     display: flex;
     gap: 6px;
     padding: 4px;
-    border: 1px solid #555;
-    border-radius: 6px;
-    background-color: #171717;
+    border: 1px solid #3a3a3a;
+    border-radius: 3px;
+    background-color: #1b1b1b;
 }
 
 .date-control input,
@@ -273,5 +347,36 @@ body {
 
 .date-control input:hover,
 .date-control button:hover {
-    background-color: #3f45b5;
+    background-color: #2c2c2c;
+}
+
+@media (max-width: 720px) {
+    .app-nav {
+        align-items: stretch;
+        flex-wrap: wrap;
+        gap: 10px;
+        padding: 10px 16px 12px;
+    }
+
+    .league-toggle {
+        order: 3;
+        width: 100%;
+        min-height: 42px;
+    }
+
+    .league-toggle button {
+        flex: 1;
+    }
+
+    .nav-tools {
+        margin-left: 0;
+    }
+
+    .nav-section-label {
+        display: none;
+    }
+
+    .matchup-sticky {
+        top: 116px;
+    }
 }
