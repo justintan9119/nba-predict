@@ -17,7 +17,8 @@ export type MoneylineSide = {
 };
 
 export type KalshiUserBet = {
-  type: 'position' | 'resting_order';
+  type: 'position' | 'order';
+  orderId?: string;
   ticker: string;
   side?: 'away' | 'home';
   team?: string;
@@ -29,7 +30,11 @@ export type KalshiUserBet = {
   totalTraded?: number;
   marketExposureCents?: number;
   priceCents?: number;
+  costCents?: number | null;
   maxCostCents?: number | null;
+  potentialProfitCents?: number | null;
+  potentialPayoutCents?: number | null;
+  status?: string;
   createdTime?: string;
 };
 
@@ -40,6 +45,16 @@ export type OddsData = {
   lastUpdate?: string;
   userBets?: KalshiUserBet[];
   userBetsError?: string;
+};
+
+export type KalshiRecord = {
+  configured: boolean;
+  startTime: string;
+  wins: number;
+  losses: number;
+  trackedContracts: number;
+  realizedPnlCents: number;
+  markets: number;
 };
 
 export type PredictionProbabilities = {

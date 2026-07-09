@@ -1,7 +1,7 @@
 import {useEffect, useEffectEvent, useRef, useState} from 'react';
 import {GameList} from './components/GameList';
-import {MatchupPanel} from './components/MatchupPanel';
-import type {Game, League, LiveData, OddsData, PredictionProbabilities} from './types';
+import {KalshiRecordDisplay, MatchupPanel} from './components/MatchupPanel';
+import type {Game, KalshiRecord, League, LiveData, OddsData, PredictionProbabilities} from './types';
 import {dateInputValue, liveDataFromGame} from './utils';
 import './App.css';
 import './Odds.css';
@@ -9,6 +9,58 @@ import './Odds.css';
 const API_BASE = 'http://localhost:8080/api';
 const SCOREBOARD_POLL_MS = 30_000;
 const SELECTED_GAME_POLL_MS = 15_000;
+
+function formatCents(value?: number | null) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  return `$${(value / 100).toFixed(2)}`;
+}
+
+function numericValue(value: unknown) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function centsFromPrice(value: unknown) {
+  const parsed = numericValue(value);
+  if (parsed === null) {
+    return null;
+  }
+  return Math.round(parsed > 1 ? parsed : parsed * 100);
+}
+
+function numberFromOrder(order: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = numericValue(order[key]);
+    if (value !== null) {
+      return value;
+    }
+  }
+  return null;
+}
+
+function kalshiOrderSummary(order: unknown) {
+  if (!order || typeof order !== 'object') {
+    return '';
+  }
+  const fields = order as Record<string, unknown>;
+  const count = numericValue(fields.count);
+  const priceCents = centsFromPrice(fields.price ?? fields.price_dollars ?? fields.yes_price ?? fields.yes_price_dollars);
+  const costCents = numberFromOrder(fields, ['cost_cents', 'costCents', 'max_cost_cents', 'maxCostCents'])
+    ?? (count !== null && priceCents !== null ? Math.round(count * priceCents) : null);
+  const profitCents = numberFromOrder(fields, ['potential_profit_cents', 'potentialProfitCents'])
+    ?? (count !== null && priceCents !== null ? Math.round(count * (100 - priceCents)) : null);
+  const payoutCents = numberFromOrder(fields, ['potential_payout_cents', 'potentialPayoutCents'])
+    ?? (count !== null ? Math.round(count * 100) : null);
+  const cost = formatCents(costCents);
+  const profit = formatCents(profitCents);
+  const payout = formatCents(payoutCents);
+  if (count === null || priceCents === null || !cost || !profit || !payout) {
+    return '';
+  }
+  return `${Math.round(count)} contracts at ${priceCents}c. Cost ${cost}. Potential profit ${profit}. Payout ${payout}.`;
+}
 
 function App() {
   const [league, setLeague] = useState<League>('wnba');
@@ -24,30 +76,27 @@ function App() {
   const [odds, setOdds] = useState<OddsData | null>(null);
   const [oddsMessage, setOddsMessage] = useState('');
   const [oddsLoading, setOddsLoading] = useState(false);
-  const [oddsEnabled, setOddsEnabled] = useState(true);
   const [kalshiBetMessage, setKalshiBetMessage] = useState('');
+  const [kalshiRecord, setKalshiRecord] = useState<KalshiRecord | null>(null);
   const [predictionProbabilities, setPredictionProbabilities] = useState<PredictionProbabilities | null>(null);
   // Refs keep asynchronous requests from updating the screen with stale data.
   const predictionRequestRef = useRef(0);
-  const oddsEnabledRef = useRef(true);
 
-  const loadOdds = async (gameId: string) => {
-    // Test mode avoids calling the external market-data provider.
-    if (!oddsEnabledRef.current) {
-      return;
+  const loadOdds = async (gameId: string, clearExisting = true) => {
+    if (clearExisting) {
+      setOdds(null);
+      setOddsMessage('');
+      setOddsLoading(true);
     }
-    setOddsLoading(true);
-    setOdds(null);
-    setOddsMessage('');
     try {
       const response = await fetch(`${API_BASE}/odds/${gameId}?league=${league}&date=${selectedDate}`);
       const data = await response.json();
-      if (!oddsEnabledRef.current) {
-        return;
-      }
       if (data.status === 'success') {
         if (data.odds) {
           setOdds(data.odds);
+          if (!clearExisting) {
+            setOddsMessage('');
+          }
         } else {
           setOddsMessage('Kalshi market prices are not available.');
         }
@@ -55,11 +104,11 @@ function App() {
         setOddsMessage(data.message || 'Kalshi market prices are not available.');
       }
     } catch {
-      if (oddsEnabledRef.current) {
-        setOddsMessage('Kalshi market prices are not available.');
-      }
+      setOddsMessage('Kalshi market prices are not available.');
     } finally {
-      setOddsLoading(false);
+      if (clearExisting) {
+        setOddsLoading(false);
+      }
     }
   };
 
@@ -69,6 +118,18 @@ function App() {
     setDate(data.date);
     setGames(data.teams);
     return data.teams as Game[];
+  };
+
+  const loadKalshiRecord = async () => {
+    try {
+      const response = await fetch(`${API_BASE}/kalshi/record`);
+      const data = await response.json();
+      if (data.status === 'success') {
+        setKalshiRecord(data.record ?? null);
+      }
+    } catch {
+      setKalshiRecord(null);
+    }
   };
 
   const maybePlaceKalshiEdgeBet = async (gameId: string, requestId: number) => {
@@ -84,6 +145,7 @@ function App() {
       }
       const result = data.result;
       const team = result?.pick?.team ? ` ${result.pick.team}` : '';
+      const orderSummary = kalshiOrderSummary(result?.order);
       const prefix = result?.status === 'placed'
         ? 'Kalshi order placed for'
         : result?.status === 'dry_run'
@@ -91,9 +153,10 @@ function App() {
           : result?.status === 'disabled'
             ? 'Kalshi trading disabled for'
             : 'Kalshi edge bet skipped for';
-      setKalshiBetMessage(`${prefix}${team}. ${result?.reason || ''}`.trim());
+      setKalshiBetMessage(`${prefix}${team}. ${orderSummary} ${result?.reason || ''}`.trim());
       if (result?.status === 'placed') {
         void loadOdds(gameId);
+        void loadKalshiRecord();
       }
     } catch {
       if (requestId === predictionRequestRef.current) {
@@ -166,7 +229,7 @@ function App() {
 
     const selectedGame = games.find((game) => game.gameId === gameId);
     setSelectedGameId(gameId);
-    if (oddsEnabledRef.current && selectedGame?.status === 1) {
+    if (selectedGame?.status === 1) {
       await loadOdds(gameId);
     }
     if (selectedGame?.isFinal) {
@@ -176,9 +239,7 @@ function App() {
     }
     if (selectedGame?.isLive || selectedGame?.status === 2) {
       setLiveData(liveDataFromGame(selectedGame));
-      if (oddsEnabledRef.current) {
-        void loadOdds(gameId);
-      }
+      void loadOdds(gameId);
       await fetchLive(gameId, false);
       setLoading(false);
       return;
@@ -195,7 +256,10 @@ function App() {
   };
 
   const initializeScoreboard = useEffectEvent(() => {
-    loadScoreboard().then(() => fetch(`${API_BASE}/train?league=${league}`));
+    loadScoreboard().then(() => {
+      void loadKalshiRecord();
+      return fetch(`${API_BASE}/train?league=${league}`);
+    });
   });
 
   const pollScoreboard = useEffectEvent(async (gameId: string | null) => {
@@ -210,9 +274,15 @@ function App() {
       }
       if (selectedGame.isFinal) {
         setLiveData(liveDataFromGame(selectedGame));
+        void loadOdds(gameId, false);
       } else if (selectedGame.isLive || selectedGame.status === 2) {
         setLiveData(liveDataFromGame(selectedGame));
-        await fetchLive(gameId, false);
+        await Promise.all([
+          fetchLive(gameId, false),
+          loadOdds(gameId, false),
+        ]);
+      } else if (selectedGame.status === 1) {
+        void loadOdds(gameId, false);
       }
   });
 
@@ -220,6 +290,17 @@ function App() {
     const initializationTimer = window.setTimeout(initializeScoreboard, 0);
     return () => window.clearTimeout(initializationTimer);
   }, [league, selectedDate]);
+
+  useEffect(() => {
+    void loadKalshiRecord();
+  }, []);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      void loadKalshiRecord();
+    }, 60_000);
+    return () => window.clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -252,19 +333,6 @@ function App() {
 
   const selectedGame = games.find((game) => game.gameId === selectedGameId);
 
-  const toggleOddsApi = () => {
-    const nextEnabled = !oddsEnabledRef.current;
-    oddsEnabledRef.current = nextEnabled;
-    setOddsEnabled(nextEnabled);
-    if (!nextEnabled) {
-      setOdds(null);
-      setOddsLoading(false);
-      setOddsMessage('Test mode: Kalshi market-data calls are disabled.');
-    } else {
-      setOddsMessage('Kalshi market-data calls are enabled. Select a game to load prices.');
-    }
-  };
-
   return (
     <div>
       <header className="app-nav">
@@ -289,10 +357,15 @@ function App() {
       </header>
 
       <main className="app-shell">
-        <h1 className="title">Sports Predictor</h1>
-        <h2 className="title" style={{paddingBottom: '2rem'}}>Games ({date})</h2>
+        <div className="app-title-row">
+          <div className="app-title-stack">
+            <h1 className="title">Sports Predictor</h1>
+            <h2 className="title" style={{paddingBottom: '0'}}>Games ({date})</h2>
+          </div>
+          <KalshiRecordDisplay record={kalshiRecord} compact />
+        </div>
+        <GameList games={games} league={league} onSelect={fetchPredict} />
         <div className="app-content">
-          <GameList games={games} league={league} onSelect={fetchPredict} />
           <MatchupPanel
             loading={loading}
             league={league}
@@ -304,11 +377,9 @@ function App() {
             selectedGame={selectedGame}
             odds={odds}
             oddsLoading={oddsLoading}
-            oddsEnabled={oddsEnabled}
             oddsMessage={oddsMessage}
             kalshiBetMessage={kalshiBetMessage}
             predictionProbabilities={predictionProbabilities}
-            onToggleOddsApi={toggleOddsApi}
           />
         </div>
       </main>

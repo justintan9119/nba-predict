@@ -5,7 +5,7 @@ from flask_cors import CORS
 from nba_api.stats.endpoints import scoreboardv3, boxscoresummaryv3
 from predict import format_clock, model_diagnostics, predict_live, predict_matchup_details, start_training
 from odds import fetch_moneyline_odds
-from kalshi_trading import kalshi_user_bets_for_odds, maybe_place_edge_bet
+from kalshi_trading import kalshi_record_summary, kalshi_user_bets_for_odds, maybe_place_edge_bet
 from live_stats import live_game_stats
 from mlb_players import mlb_game_player_stats
 from mlb_predict import mlb_live_projection, mlb_model_diagnostics, mlb_predict_game, mlb_scoreboard_games, start_mlb_training
@@ -150,6 +150,14 @@ def place_kalshi_edge_bet(game_id):
         odds = fetch_moneyline_odds(league, game)
         result = maybe_place_edge_bet(game, odds, prediction.get('probabilities'))
         return success_response(result=result)
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 503
+
+
+@app.route("/api/kalshi/record", methods=['GET'])
+def get_kalshi_record():
+    try:
+        return success_response(record=kalshi_record_summary(request.args.get('startDate')))
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 503
 

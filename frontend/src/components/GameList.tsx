@@ -22,15 +22,25 @@ type GameListProps = {
   onSelect: (gameId: string) => void;
 };
 
+function gameStatusClass(game: Game) {
+  if (game.isLive || game.status === 2) {
+    return 'live';
+  }
+  if (game.isFinal || game.status === 3) {
+    return 'final';
+  }
+  return 'pregame';
+}
+
 export function GameList({games, league, onSelect}: GameListProps) {
   if (games.length === 0) {
-    return <div>There are no games today</div>;
+    return <div className="game-slider-empty">There are no games today</div>;
   }
 
   return (
-    <div className="left-side">
+    <div className="game-slider" aria-label="Games">
       {games.map((game) => (
-        <div className="gameList" key={game.gameId}>
+        <div className={`gameList ${gameStatusClass(game)}`} key={game.gameId}>
           <div className="scoreboard-status">
             {game.isFinal ? 'FINAL' : game.isLive || game.status === 2 ? 'LIVE' : game.statusText || 'PRE-GAME'}
           </div>

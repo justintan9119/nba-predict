@@ -20,6 +20,7 @@ def bool_env(name, default=False):
 KALSHI_TRADING_ENABLED = bool_env('KALSHI_TRADING_ENABLED', False)
 KALSHI_DRY_RUN = bool_env('KALSHI_DRY_RUN', True)
 KALSHI_API_KEY_ID = os.environ.get('KALSHI_API_KEY_ID', '').strip()
+KALSHI_API_KEY_ID_PATH = os.environ.get('KALSHI_API_KEY_ID_PATH', '').strip()
 KALSHI_PRIVATE_KEY_PATH = os.environ.get('KALSHI_PRIVATE_KEY_PATH', '').strip()
 KALSHI_PRIVATE_KEY_PEM = os.environ.get('KALSHI_PRIVATE_KEY_PEM', '').strip()
 KALSHI_BANKROLL_CENTS = max(1, int(os.environ.get('KALSHI_BANKROLL_CENTS', '9000')))
@@ -67,6 +68,14 @@ def load_private_key():
     raise RuntimeError('Unable to load Kalshi private key. Export it as an unencrypted PEM private key.') from last_error
 
 
+def load_api_key_id():
+    if KALSHI_API_KEY_ID:
+        return KALSHI_API_KEY_ID
+    if KALSHI_API_KEY_ID_PATH:
+        return Path(KALSHI_API_KEY_ID_PATH).read_text(encoding='utf-8').strip()
+    return ''
+
+
 def sign_request(private_key, timestamp, method, path):
     from cryptography.hazmat.primitives import hashes
     from cryptography.hazmat.primitives.asymmetric import padding
@@ -84,13 +93,14 @@ def sign_request(private_key, timestamp, method, path):
 
 
 def auth_headers(method, path):
-    if not KALSHI_API_KEY_ID:
-        raise RuntimeError('Set KALSHI_API_KEY_ID before enabling Kalshi trading.')
+    api_key_id = load_api_key_id()
+    if not api_key_id:
+        raise RuntimeError('Set KALSHI_API_KEY_ID or KALSHI_API_KEY_ID_PATH before enabling Kalshi trading.')
     timestamp = str(int(datetime.datetime.now(datetime.UTC).timestamp() * 1000))
     private_key = load_private_key()
     sign_path = urlparse(f'{KALSHI_API_BASE}{path}').path
     return {
-        'KALSHI-ACCESS-KEY': KALSHI_API_KEY_ID,
+        'KALSHI-ACCESS-KEY': api_key_id,
         'KALSHI-ACCESS-TIMESTAMP': timestamp,
         'KALSHI-ACCESS-SIGNATURE': sign_request(private_key, timestamp, method, sign_path),
     }
@@ -106,8 +116,235 @@ def kalshi_request(method, path, **kwargs):
     return response.json()
 
 
+def kalshi_paginated_request(method, path, *, params=None, items_key=None):
+    items = []
+    cursor = None
+    request_params = dict(params or {})
+    while True:
+        next_params = dict(request_params)
+        if cursor:
+            next_params['cursor'] = cursor
+        data = kalshi_request(method, path, params=next_params)
+        if items_key:
+            batch = data.get(items_key, [])
+        elif isinstance(data, list):
+            batch = data
+        else:
+            batch = data.get('fills') or data.get('orders') or data.get('market_positions') or data.get('settlements') or []
+        if batch:
+            items.extend(batch)
+        cursor = (
+            data.get('cursor')
+            or data.get('next_cursor')
+            or data.get('nextCursor')
+            or data.get('page_cursor')
+            or data.get('next_page_cursor')
+        )
+        if not cursor:
+            break
+    return items
+
+
 def kalshi_credentials_configured():
-    return bool(KALSHI_API_KEY_ID and (KALSHI_PRIVATE_KEY_PATH or KALSHI_PRIVATE_KEY_PEM))
+    return bool(load_api_key_id() and (KALSHI_PRIVATE_KEY_PATH or KALSHI_PRIVATE_KEY_PEM))
+
+
+def local_midnight_iso():
+    now = datetime.datetime.now().astimezone()
+    return now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+
+
+def parse_datetime(value):
+    if not value:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.endswith('Z'):
+        text = text[:-1] + '+00:00'
+    try:
+        return datetime.datetime.fromisoformat(text)
+    except ValueError:
+        return None
+
+
+def parse_contract_count(value, default=0):
+    try:
+        return int(round(float(value)))
+    except (TypeError, ValueError):
+        return default
+
+
+def parse_contract_price_cents(fill):
+    for key in ('price_cents', 'price', 'yes_price', 'no_price'):
+        value = fill.get(key)
+        if value in (None, ''):
+            continue
+        try:
+            price = float(value)
+        except (TypeError, ValueError):
+            continue
+        if key.endswith('_cents') or price > 1:
+            return int(round(price))
+        return int(round(price * 100))
+    for key in ('price_dollars', 'yes_price_dollars', 'no_price_dollars'):
+        value = fill.get(key)
+        if value in (None, ''):
+            continue
+        try:
+            return int(round(float(value) * 100))
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def normalize_market_result(value):
+    text = str(value or '').strip().lower()
+    if text in {'yes', 'y', 'true', '1', 'won', 'win', 'settled_yes'}:
+        return 'yes'
+    if text in {'no', 'n', 'false', '0', 'lost', 'loss', 'settled_no'}:
+        return 'no'
+    return None
+
+
+def market_settlement_side(market):
+    for key in (
+        'settlement_result',
+        'result',
+        'outcome',
+        'winner',
+        'winning_side',
+        'settled_outcome',
+        'resolved_outcome',
+    ):
+        result = normalize_market_result(market.get(key))
+        if result:
+            return result
+    return None
+
+
+def fill_direction(fill):
+    for key in ('action', 'side', 'book_side', 'direction'):
+        value = str(fill.get(key) or '').strip().lower()
+        if value in {'buy', 'bid'}:
+            return 'buy'
+        if value in {'sell', 'ask'}:
+            return 'sell'
+    return 'buy'
+
+
+def fill_outcome_side(fill):
+    for key in ('outcome_side', 'side', 'book_side', 'contract_side'):
+        value = str(fill.get(key) or '').strip().lower()
+        if value in {'yes', 'y'}:
+            return 'yes'
+        if value in {'no', 'n'}:
+            return 'no'
+    return None
+
+
+def fill_market_ticker(fill):
+    for key in ('market_ticker', 'ticker', 'marketTicker'):
+        value = fill.get(key)
+        if value:
+            return value
+    return None
+
+
+def fetch_kalshi_fills_since(start_time):
+    fills = kalshi_paginated_request('GET', '/portfolio/fills', params={'limit': 1000}, items_key='fills')
+    cutoff = parse_datetime(start_time)
+    if cutoff is None:
+        return fills
+    filtered = []
+    for fill in fills:
+        fill_time = parse_datetime(
+            fill.get('created_time')
+            or fill.get('executed_time')
+            or fill.get('fill_time')
+            or fill.get('timestamp')
+            or fill.get('time')
+        )
+        if fill_time is None or fill_time >= cutoff:
+            filtered.append(fill)
+    return filtered
+
+
+def fetch_market_status(ticker):
+    if not ticker:
+        return None
+    try:
+        return kalshi_request('GET', f'/markets/{ticker}')
+    except Exception:
+        return None
+
+
+def kalshi_record_summary(start_time=None):
+    if not kalshi_credentials_configured():
+        return {
+            'configured': False,
+            'startTime': start_time or local_midnight_iso(),
+            'wins': 0,
+            'losses': 0,
+            'trackedContracts': 0,
+            'realizedPnlCents': 0,
+            'markets': 0,
+        }
+
+    start_time = start_time or local_midnight_iso()
+    fills = fetch_kalshi_fills_since(start_time)
+    market_cache = {}
+    wins = 0
+    losses = 0
+    realized_pnl_cents = 0
+    tracked_contracts = 0
+
+    for fill in fills:
+        ticker = fill_market_ticker(fill)
+        if not ticker:
+            continue
+        market = market_cache.get(ticker)
+        if market is None:
+            market = fetch_market_status(ticker)
+            market_cache[ticker] = market
+        if not market:
+            continue
+
+        settlement_side = market_settlement_side(market)
+        if settlement_side not in {'yes', 'no'}:
+            continue
+
+        fill_side = fill_outcome_side(fill)
+        if fill_side not in {'yes', 'no'}:
+            continue
+
+        direction = fill_direction(fill)
+        count = parse_contract_count(fill.get('count') or fill.get('quantity') or fill.get('contracts') or 0)
+        if count <= 0:
+            continue
+
+        price_cents = parse_contract_price_cents(fill)
+        if price_cents is None:
+            price_cents = 0
+
+        tracked_contracts += count
+        won = (direction == 'buy' and fill_side == settlement_side) or (direction == 'sell' and fill_side != settlement_side)
+        if won:
+            wins += count
+            realized_pnl_cents += count * (100 - price_cents if direction == 'buy' else price_cents)
+        else:
+            losses += count
+            realized_pnl_cents -= count * (price_cents if direction == 'buy' else 100 - price_cents)
+
+    return {
+        'configured': True,
+        'startTime': start_time,
+        'wins': wins,
+        'losses': losses,
+        'trackedContracts': tracked_contracts,
+        'realizedPnlCents': realized_pnl_cents,
+        'markets': len(market_cache),
+    }
 
 
 def implied_probability_from_american(value):
@@ -207,6 +444,71 @@ def int_value(value, default=0):
         return default
 
 
+def fixed_point_value(value, default=0.0):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def contract_count_value(value, default=0):
+    return int(fixed_point_value(value, default))
+
+
+def cents_from_dollars(value, default=0):
+    amount = fixed_point_value(value, None)
+    if amount is None:
+        return default
+    return int(round(amount * 100))
+
+
+def cents_from_price_value(value, default=0):
+    amount = fixed_point_value(value, None)
+    if amount is None:
+        return default
+    if amount > 1:
+        return int(round(amount))
+    return int(round(amount * 100))
+
+
+def first_present(mapping, keys):
+    for key in keys:
+        value = mapping.get(key)
+        if value not in (None, ''):
+            return value
+    return None
+
+
+def order_contract_side(order):
+    side = str(order.get('side') or '').lower()
+    if side in {'yes', 'no'}:
+        return side.upper()
+    if side == 'bid':
+        return 'YES'
+    if side == 'ask':
+        return 'NO'
+    return 'YES'
+
+
+def order_price_cents(order, contract_side):
+    yes_price = cents_from_dollars(order.get('yes_price_dollars'), int_value(order.get('yes_price')))
+    no_price = cents_from_dollars(order.get('no_price_dollars'), int_value(order.get('no_price')))
+    price = cents_from_price_value(first_present(order, ('price_dollars', 'price')), 0)
+    if price > 0:
+        return price
+    return yes_price if contract_side == 'YES' else no_price
+
+
+def order_action(order):
+    action = str(order.get('action') or '').strip().lower()
+    if action in {'buy', 'sell'}:
+        return action.upper()
+    side = str(order.get('side') or '').strip().lower()
+    if side == 'ask':
+        return 'SELL'
+    return 'BUY'
+
+
 def kalshi_user_bets_for_odds(odds):
     if not odds or not kalshi_credentials_configured():
         return []
@@ -246,31 +548,37 @@ def kalshi_user_bets_for_odds(odds):
     orders = kalshi_request(
         'GET',
         '/portfolio/orders',
-        params={'event_ticker': event_ticker, 'status': 'resting', 'limit': 1000},
+        params={'event_ticker': event_ticker, 'limit': 1000},
     )
     for order in orders.get('orders', []):
         ticker = order.get('ticker')
         if ticker not in tickers:
             continue
-        count = int_value(order.get('count'))
-        remaining_count = int_value(order.get('remaining_count'), count)
-        yes_price = int_value(order.get('yes_price'))
-        no_price = int_value(order.get('no_price'))
-        order_side = str(order.get('side') or 'yes').upper()
-        price_cents = yes_price if order_side == 'YES' else no_price
-        if price_cents <= 0 and yes_price > 0:
-            price_cents = yes_price
+        count = contract_count_value(first_present(order, ('count', 'initial_count', 'count_fp', 'initial_count_fp')))
+        remaining_count = contract_count_value(first_present(order, ('remaining_count', 'remaining_count_fp')), count)
+        contract_side = order_contract_side(order)
+        price_cents = order_price_cents(order, contract_side)
+        action = order_action(order)
+        cost_cents = count * (price_cents if action == 'BUY' else 100 - price_cents) if price_cents > 0 else None
+        potential_profit_cents = count * (100 - price_cents if action == 'BUY' else price_cents) if price_cents > 0 else None
+        potential_payout_cents = count * 100 if action == 'BUY' and price_cents > 0 else potential_profit_cents
+        status = str(order.get('status') or '').lower()
         bets.append({
-            'type': 'resting_order',
+            'type': 'order',
+            'orderId': order.get('order_id') or order.get('id') or order.get('client_order_id'),
             'ticker': ticker,
             'side': side_for_odds_ticker(odds, ticker),
             'team': team_for_odds_ticker(odds, ticker),
-            'contractSide': order_side,
-            'action': str(order.get('action') or 'buy').upper(),
+            'contractSide': contract_side,
+            'action': action,
             'contracts': count,
             'remainingContracts': remaining_count,
             'priceCents': price_cents,
-            'maxCostCents': remaining_count * price_cents if price_cents > 0 else None,
+            'costCents': cost_cents,
+            'maxCostCents': cost_cents,
+            'potentialProfitCents': potential_profit_cents,
+            'potentialPayoutCents': potential_payout_cents,
+            'status': status,
             'createdTime': order.get('created_time'),
         })
 
@@ -301,6 +609,14 @@ def order_count_for_price(kalshi_price, model_probability):
     return max(1, count), price_cents, stake_cents
 
 
+def fixed_point_contract_count(count):
+    return f'{int(count)}.00'
+
+
+def fixed_point_dollar_price(price_cents):
+    return f'{int(price_cents) / 100:.4f}'
+
+
 def maybe_place_edge_bet(game, odds, probabilities):
     if game.get('status') != 1:
         return {'status': 'skipped', 'reason': 'Bets are only considered before the game starts.'}
@@ -325,22 +641,28 @@ def maybe_place_edge_bet(game, odds, probabilities):
         return {'status': 'skipped', 'reason': 'Kelly sizing produced no valid contract count.', 'pick': pick}
     order = {
         'ticker': pick['ticker'],
-        'side': 'yes',
-        'action': 'buy',
-        'count': count,
-        'yes_price': price_cents,
+        'side': 'bid',
+        'count': fixed_point_contract_count(count),
+        'price': fixed_point_dollar_price(price_cents),
         'time_in_force': 'immediate_or_cancel',
+        'self_trade_prevention_type': 'taker_at_cross',
         'client_order_id': f'edge-{game.get("gameId")}-{pick["side"]}-{uuid.uuid4().hex[:12]}',
-        'buy_max_cost': count * price_cents,
+    }
+    order_summary = {
+        **order,
         'recommended_stake_cents': stake_cents,
+        'cost_cents': count * price_cents,
+        'max_cost_cents': count * price_cents,
+        'potential_profit_cents': count * (100 - price_cents),
+        'potential_payout_cents': count * 100,
     }
 
     if KALSHI_DRY_RUN:
-        return {'status': 'dry_run', 'reason': 'Set KALSHI_DRY_RUN=0 to submit real orders.', 'pick': pick, 'order': order}
+        return {'status': 'dry_run', 'reason': 'Set KALSHI_DRY_RUN=0 to submit real orders.', 'pick': pick, 'order': order_summary}
 
     existing = existing_event_activity(event_ticker, tickers)
     if existing:
         return {'status': 'skipped', 'reason': 'Existing Kalshi position or resting order found for this game.', 'existing': existing, 'pick': pick}
 
-    result = kalshi_request('POST', '/portfolio/orders', json=order)
+    result = kalshi_request('POST', '/portfolio/events/orders', json=order)
     return {'status': 'placed', 'pick': pick, 'order': result.get('order', result)}

@@ -1,2 +1,6 @@
 backend/model_cache/
+backend/.env.local
+kalshi_api_key_id.txt
 bzerot.txt
+*.pyc
+__pycache__/

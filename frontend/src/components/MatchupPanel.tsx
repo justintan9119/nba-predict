@@ -1,6 +1,6 @@
 import {LivePlayerStats} from './LivePlayerStats';
 import {teamColor} from '../teamColors';
-import type {Game, KalshiUserBet, League, LiveData, MoneylineSide, OddsData, PredictionProbabilities} from '../types';
+import type {Game, KalshiRecord, KalshiUserBet, League, LiveData, MoneylineSide, OddsData, PredictionProbabilities} from '../types';
 import {formatAmericanOdds, formatClock, formatPercent, impliedProbabilityFromAmericanOdds} from '../utils';
 
 type MatchupPanelProps = {
@@ -14,11 +14,9 @@ type MatchupPanelProps = {
   selectedGame?: Game;
   odds: OddsData | null;
   oddsLoading: boolean;
-  oddsEnabled: boolean;
   oddsMessage: string;
   kalshiBetMessage: string;
   predictionProbabilities: PredictionProbabilities | null;
-  onToggleOddsApi: () => void;
 };
 
 function TeamName({name, fullName, logoUrl}: {name: string; fullName?: string; logoUrl?: string}) {
@@ -42,6 +40,28 @@ function formatCents(value?: number | null) {
   return `$${(value / 100).toFixed(2)}`;
 }
 
+function formatOrderStatus(status?: string) {
+  if (!status) {
+    return 'Order';
+  }
+  return status
+    .split(/[_\s-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(' ');
+}
+
+function formatBetTime(value?: string) {
+  if (!value) {
+    return null;
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  return date.toLocaleString();
+}
+
 function BetDescription({bet}: {bet: KalshiUserBet}) {
   const contractSide = bet.contractSide || 'YES';
   if (bet.type === 'position') {
@@ -51,8 +71,19 @@ function BetDescription({bet}: {bet: KalshiUserBet}) {
   }
 
   const remaining = bet.remainingContracts ?? bet.contracts ?? 0;
-  const price = bet.priceCents ? ` @ ${bet.priceCents}¢` : '';
-  return <>{bet.action || 'BUY'} {remaining} {contractSide}{price}<em>Max cost {formatCents(bet.maxCostCents)}</em></>;
+  const price = bet.priceCents ? ` @ ${bet.priceCents}c` : '';
+  const openText = remaining !== (bet.contracts ?? remaining) ? `${remaining} open` : null;
+  const createdTime = formatBetTime(bet.createdTime);
+  return (
+    <>
+      {bet.action || 'BUY'} {bet.contracts ?? remaining} {contractSide}{price}
+      {openText && <em>{openText}</em>}
+      <em>Cost {formatCents(bet.costCents ?? bet.maxCostCents)}</em>
+      <em>Potential profit {formatCents(bet.potentialProfitCents)}</em>
+      <em>Payout {formatCents(bet.potentialPayoutCents)}</em>
+      {createdTime && <em>{createdTime}</em>}
+    </>
+  );
 }
 
 function UserBets({bets}: {bets?: KalshiUserBet[]}) {
@@ -64,9 +95,9 @@ function UserBets({bets}: {bets?: KalshiUserBet[]}) {
     <div className="kalshi-user-bets">
       <div className="kalshi-user-bets-heading">Your Kalshi Bets</div>
       {bets.map((bet, index) => (
-        <div className="kalshi-user-bet" key={`${bet.ticker}-${bet.type}-${index}`}>
+        <div className="kalshi-user-bet" key={`${bet.orderId || bet.ticker}-${bet.type}-${index}`}>
           <span style={{color: teamColor(bet.team || '')}}>{bet.team || bet.ticker}</span>
-          <strong>{bet.type === 'position' ? 'Position' : 'Resting order'}</strong>
+          <strong>{bet.type === 'position' ? 'Position' : formatOrderStatus(bet.status)}</strong>
           <small><BetDescription bet={bet} /></small>
         </div>
       ))}
@@ -86,6 +117,50 @@ function OddsDisplay({odds}: {odds: OddsData}) {
       <UserBets bets={odds.userBets} />
       {odds.userBetsError && <div className="odds-message">Kalshi bet lookup failed: {odds.userBetsError}</div>}
       {odds.lastUpdate && <div className="odds-updated">Updated {new Date(odds.lastUpdate).toLocaleString()}</div>}
+    </div>
+  );
+}
+
+function formatSignedCents(value: number) {
+  const prefix = value > 0 ? '+' : '';
+  return `${prefix}$${(value / 100).toFixed(2)}`;
+}
+
+export function KalshiRecordDisplay({record, compact = false}: {record: KalshiRecord | null; compact?: boolean}) {
+  if (!record || !record.configured) {
+    return null;
+  }
+
+  const total = record.wins + record.losses;
+  const winRate = total > 0 ? ((record.wins / total) * 100).toFixed(1) : '0.0';
+
+  return (
+    <div className={`kalshi-record-card ${compact ? 'compact' : ''}`}>
+      <div className="kalshi-record-heading">
+        <span>Kalshi Record</span>
+        <em>Since {new Date(record.startTime).toLocaleDateString()}</em>
+      </div>
+      <div className="kalshi-record-grid">
+        <div>
+          <span>Wins</span>
+          <strong>{record.wins}</strong>
+        </div>
+        <div>
+          <span>Losses</span>
+          <strong>{record.losses}</strong>
+        </div>
+        <div>
+          <span>Win Rate</span>
+          <strong>{winRate}%</strong>
+        </div>
+        <div>
+          <span>Realized P/L</span>
+          <strong className={record.realizedPnlCents >= 0 ? 'positive-edge' : 'negative-edge'}>{formatSignedCents(record.realizedPnlCents)}</strong>
+        </div>
+      </div>
+      <div className="kalshi-record-footnote">
+        {record.trackedContracts} contracts across {record.markets} markets
+      </div>
     </div>
   );
 }
@@ -216,21 +291,18 @@ function PregameMatchup({
 }
 
 function MatchupDetails({
-  selectedGame, league, date, liveData, odds, oddsLoading, oddsEnabled, oddsMessage, predictionProbabilities, onToggleOddsApi,
+  selectedGame, league, date, liveData, odds, oddsLoading, oddsMessage, predictionProbabilities,
   kalshiBetMessage,
 }: MatchupPanelProps) {
   return (
     <div className="matchup-details">
-      <div className="odds-api-control">
-        <button className={oddsEnabled ? '' : 'disabled'} onClick={onToggleOddsApi}>
-          {oddsEnabled ? 'Test: Disable Kalshi API' : 'Test: Enable Kalshi API'}
-        </button>
-        {!oddsEnabled && <span>Kalshi API disabled</span>}
-      </div>
-
       {selectedGame && <LivePlayerStats game={selectedGame} league={league} date={date} />}
-      {odds && <OddsDisplay odds={odds} />}
-      {odds && predictionProbabilities && <BettingEdge odds={odds} probabilities={predictionProbabilities} isLive={Boolean(liveData)} />}
+      {odds && (
+        <div className="odds-edge-grid">
+          <OddsDisplay odds={odds} />
+          {predictionProbabilities && <BettingEdge odds={odds} probabilities={predictionProbabilities} isLive={Boolean(liveData)} />}
+        </div>
+      )}
       {oddsLoading && <div className="odds-message">Loading Kalshi prices...</div>}
       {oddsMessage && <div className="odds-message">{oddsMessage}</div>}
       {kalshiBetMessage && <div className="odds-message">{kalshiBetMessage}</div>}
